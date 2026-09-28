@@ -1,6 +1,7 @@
 node_modules/
 dist/
 release/
+nul
 *.env
 .env.*
 *.local
@@ -13,5 +14,18 @@ CLAUDE.md
 .changelog/
 run.bat
 setup.bat
-REVIEW.md
+REVIEW*.md
 AUDIT*.md
+REPORT.md
+FEATURES.md
+PROBLEM.md
+
+# Fleet working docs — live in the tree for workers, not in the repo
+docs/PLAN-*.md
+docs/*-AUDIT.md
+docs/*-SURVEY.md
+docs/PROMPT-*.md
+docs/CLICKY-SKILLS.md
+docs/FEATURE-ADOPTION.md
+docs/VOICE-TESTS.md
+scripts/*-report.md

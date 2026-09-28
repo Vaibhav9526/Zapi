@@ -115,6 +115,14 @@ export interface CompanionCallbacks {
    * audible acknowledgment that Zapi picked up what they said.
    */
   onVadAccepted?: () => void;
+  /**
+   * OS-voice fallback: the TTS provider can't speak (no key, API
+   * failure — Fish Audio's 402 'insufficient credit' was the user-hit),
+   * so the overlay reads the text through the platform voice instead
+   * of going silent. Optional — a callback set without it just stays
+   * silent, same as before the fallback existed.
+   */
+  onSpeakText?: (text: string, rate: number) => void;
 }
 
 /**
@@ -197,10 +205,18 @@ export class CompanionManager {
   /** Pending scene beat timers, cleared on new turn or end-of-scene. */
   private sceneTimers: ReturnType<typeof setTimeout>[] = [];
   /**
-   * speakReplies with no key for the chosen provider fails silently by
-   * design — warn once per provider per session so the log explains it.
+   * speakReplies with no key for the chosen provider used to fail
+   * silently — it now falls back to the OS voice, but the user still
+   * needs to know their provider voice is idle. Warn once per provider
+   * per session so the log + toast explain it.
    */
   private ttsMissingKeyWarned = new Set<TtsProvider>();
+  /**
+   * The 'speaking with system voice' chat-visible cue fires once per
+   * session — the OS voice itself is the per-turn fallback, so the cue's
+   * only job is explaining *why* the voice changed.
+   */
+  private ttsFallbackAnnounced = false;
   /**
    * If startRecording is in flight, other callers (typically a quick-release
    * stopPushToTalk) await this before deciding whether to stop. Without it,
@@ -2007,8 +2023,9 @@ export class CompanionManager {
 
   /**
    * Synthesize `text` with the configured TTS provider. Returns null
-   * when speech is disabled, the chosen provider has no key, or
-   * synthesis failed — callers then just skip playback.
+   * when speech is disabled or the provider can't speak — missing key,
+   * thrown error, or an empty buffer all route through
+   * {@link speakViaSystemVoice} first, so callers just skip playback.
    */
   private async synthesizeSpeech(text: string): Promise<Buffer | null> {
     const settings = settingsStore.getAll();
@@ -2028,14 +2045,20 @@ export class CompanionManager {
       if (!this.ttsMissingKeyWarned.has(provider)) {
         this.ttsMissingKeyWarned.add(provider);
         console.warn(
-          `[Zapi] speakReplies is on but no ${provider} key is configured — replies stay silent.`,
+          `[Zapi] speakReplies is on but no ${provider} key is configured — replies use the system voice.`,
         );
         this.callbacks.onError(
           provider === 'fishaudio'
             ? 'add your Fish Audio key in the panel to hear replies'
             : 'add your ElevenLabs key in the panel to hear replies',
         );
+        // The 'add your key' toast IS this path's once-cue — don't let
+        // speakViaSystemVoice stack a second generic one on top.
+        this.ttsFallbackAnnounced = true;
       }
+      // Missing key used to mean dead silence — the OS voice reads the
+      // reply instead until the key is added.
+      this.speakViaSystemVoice(text, settings.voiceSpeed);
       return null;
     }
     try {
@@ -2044,21 +2067,49 @@ export class CompanionManager {
         // voiceSpeed slider. Both are passed explicitly rather than leaning
         // on the service's settings fallback, so the value that reaches the
         // request is visible at the call site.
-        return await this.fishTts.synthesize(text, {
-          voiceId: settings.fishVoiceId,
-          speed: settings.voiceSpeed,
-        });
+        return (
+          (await this.fishTts.synthesize(text, {
+            voiceId: settings.fishVoiceId,
+            speed: settings.voiceSpeed,
+          })) ?? this.speakViaSystemVoice(text, settings.voiceSpeed)
+        );
       }
-      return await this.tts.synthesize(text, {
-        voiceId: settings.voiceId,
-        speed: settings.voiceSpeed,
-        stability: settings.voiceStability,
-      });
+      return (
+        (await this.tts.synthesize(text, {
+          voiceId: settings.voiceId,
+          speed: settings.voiceSpeed,
+          stability: settings.voiceStability,
+        })) ?? this.speakViaSystemVoice(text, settings.voiceSpeed)
+      );
     } catch (err) {
       console.error('[Zapi] TTS error:', err);
       analytics.trackTtsError(String(err));
-      return null;
+      // e.g. Fish Audio 402 'insufficient credit' — the reply still
+      // needs a voice, so the platform speech engine takes over.
+      console.warn('[Zapi] TTS provider failed — falling back to system voice');
+      return this.speakViaSystemVoice(text, settings.voiceSpeed);
     }
+  }
+
+  /**
+   * OS-voice fallback for a provider that can't speak — emits
+   * SPEAK_TEXT so the overlay's speechSynthesis reads the reply instead
+   * of dead air. Returns null so every caller's `if (audio)` simply
+   * skips its own playback. The text is re-stripped even though callers
+   * pass clean text — a canned line must never leak a stray tag to SAPI.
+   * The 'unavailable' cue fires once per session on the lightest visible
+   * channel (the panel/stream error line); the overlay voice itself is
+   * the per-turn fallback.
+   */
+  private speakViaSystemVoice(text: string, rate: number): null {
+    const spoken = text.replace(TAG_STRIP_REGEX, '').trim();
+    if (!spoken) return null;
+    if (!this.ttsFallbackAnnounced) {
+      this.ttsFallbackAnnounced = true;
+      this.callbacks.onError('speaking with system voice — voice provider unavailable');
+    }
+    this.callbacks.onSpeakText?.(spoken, rate);
+    return null;
   }
 
   /**

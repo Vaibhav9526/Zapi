@@ -1,5 +1,7 @@
 import { getApiKey } from './key-store';
 import * as settingsStore from './settings-store';
+import { coerceFishTtsModel, getFishTtsModel } from './settings-store';
+import type { FishTtsModel } from '../../shared/types';
 
 const FISH_AUDIO_API_URL = 'https://api.fish.audio/v1/tts';
 
@@ -8,6 +10,25 @@ export interface FishTtsOptions {
   voiceId: string;
   /** Playback speed multiplier (provider accepts ~0.5–2.0). Default 1.0. */
   speed?: number;
+  /**
+   * Override the model header (the voice picker's "try a different
+   * model" preview). Omitted in normal turns, which use the setting.
+   */
+  model?: FishTtsModel;
+}
+
+/**
+ * Build the request headers. The model travels as a HEADER, not a body
+ * field, per Fish Audio's OpenAPI spec — putting it in the body is
+ * silently ignored and the account's default (a paid tier) 402s on a
+ * $0 dev key with "insufficient API credit".
+ */
+function buildHeaders(apiKey: string, model: FishTtsModel): Record<string, string> {
+  return {
+    Authorization: `Bearer ${apiKey}`,
+    'Content-Type': 'application/json',
+    model,
+  };
 }
 
 /**
@@ -20,6 +41,11 @@ export class FishAudioTTS {
     if (!apiKey) {
       throw new Error('Fish Audio API key not configured. Add it in the Zapi panel.');
     }
+    // Coerced on the way out: an unknown value in the settings file must
+    // not become an opaque 4xx from the provider. Free tier by default.
+    const model = options.model
+      ? coerceFishTtsModel(options.model)
+      : getFishTtsModel();
 
     // One retry on 429/5xx (or a network blip) with ~800ms backoff —
     // same policy as the transcription providers.
@@ -29,10 +55,7 @@ export class FishAudioTTS {
       try {
         response = await fetch(FISH_AUDIO_API_URL, {
           method: 'POST',
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-            'Content-Type': 'application/json',
-          },
+          headers: buildHeaders(apiKey, model),
           body: JSON.stringify({
             text,
             reference_id: options.voiceId || undefined,

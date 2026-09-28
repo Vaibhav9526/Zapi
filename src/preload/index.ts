@@ -31,6 +31,7 @@ import type {
   Artifact,
   Suggestion,
   TtsProvider,
+  FishTtsModel,
   CaptureMode,
   UsageStats,
 } from '../shared/types';
@@ -134,12 +135,23 @@ const api = {
   openAgentWorkspace: (agentId: string): void =>
     ipcRenderer.send(IPC.OPEN_AGENT_WORKSPACE, { agentId }),
 
+  /** Main → overlay: speak text via the OS voice (fallback when the TTS
+   * provider fails or has no key). */
+  onSpeakText: (cb: (text: string, rate: number) => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, text: string, rate: number) => cb(text, rate);
+    ipcRenderer.on(IPC.SPEAK_TEXT, handler);
+    return () => ipcRenderer.removeListener(IPC.SPEAK_TEXT, handler);
+  },
+
   /** Main → overlay: play a named UI sound. */
   onPlaySfx: (cb: (name: string) => void) => {
     const handler = (_e: Electron.IpcRendererEvent, name: string) => cb(name);
     ipcRenderer.on(IPC.PLAY_SFX, handler);
     return () => ipcRenderer.removeListener(IPC.PLAY_SFX, handler);
   },
+
+  setFishTtsModel: (model: FishTtsModel): void =>
+    ipcRenderer.send(IPC.SET_FISH_TTS_MODEL, model),
 
   toggleCursor: (enabled: boolean): void => ipcRenderer.send(IPC.TOGGLE_CURSOR, enabled),
   setLaunchAtLogin: (enabled: boolean): void => ipcRenderer.send(IPC.SET_LAUNCH_AT_LOGIN, enabled),

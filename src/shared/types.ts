@@ -310,6 +310,8 @@ export interface PermissionStatus {
 
 /** Which speech provider synthesizes spoken replies. */
 export type TtsProvider = 'elevenlabs' | 'fishaudio';
+/** Fish Audio TTS model header. 's2.1-pro-free' = $0 dev tier (same quality). */
+export type FishTtsModel = 's2.1-pro-free' | 's2.1-pro' | 's2-pro' | 's1';
 
 /** Built-in voice presets we curate for the voice picker. */
 export interface VoicePreset {
@@ -401,6 +403,9 @@ export interface FlickySettings {
   voiceId: string;
   /** Fish Audio reference_id (voice model id). '' = provider default voice. */
   fishVoiceId: string;
+  /** Fish Audio model header — 's2.1-pro-free' bills $0; without it the
+   * request defaults to paid s2.1-pro and 402s on a $0-credit account. */
+  fishTtsModel: FishTtsModel;
   voiceSpeed: number;    // 0.7 – 1.2 (ElevenLabs accepted range)
   voiceStability: number; // 0 – 1
   speakReplies: boolean;
@@ -501,6 +506,7 @@ export const DEFAULT_SETTINGS: FlickySettings = {
   voiceId: 'pMsXgVXv3BLzUgSXRplE',
   ttsProvider: 'fishaudio',
   fishVoiceId: '',
+  fishTtsModel: 's2.1-pro-free',
   voiceSpeed: 1.0,
   voiceStability: 0.5,
   speakReplies: true,
@@ -609,6 +615,8 @@ export const IPC = {
   /** Voice (TTS) provider + per-provider voice id. */
   SET_TTS_PROVIDER: 'set-tts-provider',
   SET_FISH_VOICE_ID: 'set-fish-voice-id',
+  /** send FishTtsModel → persist + apply the Fish model header. */
+  SET_FISH_TTS_MODEL: 'set-fish-tts-model',
   // Mode switches
   SET_ALWAYS_ON: 'set-always-on',
   SET_DICTATION: 'set-dictation',
@@ -661,6 +669,8 @@ export const IPC = {
   OPEN_AGENT_WORKSPACE: 'open-agent-workspace',
   /** Main → overlays: play a named ui sound (agent-launch/done/needs-you/question). */
   PLAY_SFX: 'play-sfx',
+  /** Main → overlays: speak text via OS speechSynthesis (TTS-provider fallback). */
+  SPEAK_TEXT: 'speak-text',
   SUSPEND_PUSH_TO_TALK_SHORTCUT: 'suspend-push-to-talk-shortcut',
   RESUME_PUSH_TO_TALK_SHORTCUT: 'resume-push-to-talk-shortcut',
   GET_SETTINGS: 'get-settings',

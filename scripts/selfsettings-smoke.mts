@@ -454,8 +454,18 @@ const CANT_SEE = "i can't see your screen right now — screen capture failed.";
 
 // Sanity: the test never reached a model call or a native input. The
 // empty-capture bail is the only path that can prove that, so assert it
-// ran instead of trusting that no network happened.
-check(errors.length <= 1, 'sanity: only the one-shot missing-TTS-key warning surfaced', errors);
+// ran instead of trusting that no network happened. Two once-per-session
+// error cues are legitimate: the missing-TTS-key toast and (since the
+// OS-voice fallback landed) the 'system voice' notice — each at most once.
+const KNOWN_CUES = [
+  'key in the panel to hear replies',
+  'speaking with system voice — voice provider unavailable',
+];
+check(
+  errors.length <= 2 && errors.every((e) => KNOWN_CUES.some((k) => e.includes(k))),
+  'sanity: only the once-per-session TTS cues surfaced',
+  errors,
+);
 
 try {
   fs.rmSync(tmp, { recursive: true, force: true });

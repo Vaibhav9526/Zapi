@@ -15,9 +15,43 @@ import type {
   LocalConnection,
   PttMode,
   TtsProvider,
+  FishTtsModel,
   AgentProfile,
   Routine,
 } from '../../shared/types';
+
+/**
+ * Fish Audio model header values, in picker order: the free tier first,
+ * because it is the one every BYOK install can actually afford.
+ */
+export const FISH_TTS_MODELS: readonly FishTtsModel[] = [
+  's2.1-pro-free',
+  's2.1-pro',
+  's2-pro',
+  's1',
+] as const;
+
+/**
+ * The model we ask for unless the user picks otherwise. Fish Audio gates
+ * `s2.1-pro` behind credit, and a $0 dev account gets 402 "insufficient
+ * API credit" — which read as a broken key rather than a billing tier.
+ * The free model is the same model on the free tier, so this is a
+ * capability choice, not a downgrade.
+ */
+export const DEFAULT_FISH_TTS_MODEL: FishTtsModel = 's2.1-pro-free';
+
+/**
+ * Any value that isn't one of the four known models coerces to the free
+ * default. This is the only coercion that matters for a header: a stale
+ * or hand-edited string would otherwise be sent verbatim and come back
+ * as an opaque 4xx from the provider.
+ */
+export function coerceFishTtsModel(value: unknown): FishTtsModel {
+  const candidate = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  return (FISH_TTS_MODELS as readonly string[]).includes(candidate)
+    ? (candidate as FishTtsModel)
+    : DEFAULT_FISH_TTS_MODEL;
+}
 
 /** Id of the always-present default agent. Never archivable. */
 export const MAIN_AGENT_ID = 'main';
@@ -130,6 +164,13 @@ export interface StoredSettings {
   ttsProvider: TtsProvider;
   voiceId: string;
   fishVoiceId: string;
+  /**
+   * Which Fish Audio model the TTS request asks for, sent as the `model`
+   * header. Free tier by default: the paid model answers 402
+   * "insufficient API credit" on a $0 dev account, and every user with
+   * only a free key was hitting that on their first spoken reply.
+   */
+  fishTtsModel: FishTtsModel;
   voiceSpeed: number;
   voiceStability: number;
   speakReplies: boolean;
@@ -182,6 +223,7 @@ const DEFAULTS: StoredSettings = {
   voiceId: 'pMsXgVXv3BLzUgSXRplE',
   ttsProvider: 'fishaudio',
   fishVoiceId: '',
+  fishTtsModel: DEFAULT_FISH_TTS_MODEL,
   voiceSpeed: 1.0,
   voiceStability: 0.5,
   speakReplies: true,
@@ -245,7 +287,12 @@ function readDisk(): StoredSettings {
     // can't strand.
     const providerStale = merged.mindProvider !== 'anthropic' && merged.mindProvider !== 'openai';
     if (providerStale) merged.mindProvider = 'openai';
-    if (changed || routines.changed || providerStale) {
+    // Same reasoning for the Fish model header: an unknown value is not
+    // an error state, it is a 402 waiting to happen, so repair it to the
+    // free tier at load.
+    const fishModelStale = merged.fishTtsModel !== coerceFishTtsModel(merged.fishTtsModel);
+    merged.fishTtsModel = coerceFishTtsModel(merged.fishTtsModel);
+    if (changed || routines.changed || providerStale || fishModelStale) {
       // Persist the seed immediately: otherwise the repair only lives in
       // memory and the next launch re-derives it (harmless, but the file
       // would keep claiming a pre-multi-agent shape).
@@ -286,6 +333,29 @@ export function set<K extends keyof StoredSettings>(key: K, value: StoredSetting
 export function getAll(): StoredSettings {
   // Shallow copy so callers can't mutate the cache through the returned ref.
   return { ...ensureLoaded() };
+}
+
+// ── Fish Audio TTS model ───────────────────────────────────────────────
+
+/**
+ * The model header to send right now. Coerces on read as well as on
+ * write: `get('fishTtsModel')` is typed, but a settings file edited by
+ * hand (or written by an older build) can hold anything, and the TTS
+ * client must never put an unvalidated value on the wire.
+ */
+export function getFishTtsModel(): FishTtsModel {
+  return coerceFishTtsModel(ensureLoaded().fishTtsModel);
+}
+
+/**
+ * Persist the chosen Fish model and return the value that actually
+ * landed, so the caller can push the corrected setting to the panel
+ * rather than echoing back what was asked for.
+ */
+export function setFishTtsModel(value: unknown): FishTtsModel {
+  const model = coerceFishTtsModel(value);
+  set('fishTtsModel', model);
+  return model;
 }
 
 // ── Agent profiles ──────────────────────────────────────────────────────

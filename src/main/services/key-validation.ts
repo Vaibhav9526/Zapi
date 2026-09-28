@@ -52,7 +52,10 @@ const PROBES: Record<ApiKeyName, (key: string) => Probe> = {
       headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: resolveModelId('gpt-4o-mini', base),
-        max_tokens: 1,
+        // 16 not 1: ClinePass's gateway floor-rejects max_tokens < 16
+        // ("max_output_tokens: integer below minimum"), which would mark
+        // a perfectly good key invalid. Still costs ~a cent per probe.
+        max_tokens: 16,
         messages: [{ role: 'user', content: 'hi' }],
       }),
     };
@@ -65,11 +68,16 @@ const PROBES: Record<ApiKeyName, (key: string) => Probe> = {
   fishaudio: (key) => ({
     // No whoami endpoint exists, so we run the cheapest real call —
     // a one-word synthesis round-trip also proves the key can bill.
+    // The `model` HEADER is the same one the TTS client sends: probing
+    // without it hits the account default, which is a paid tier, and a
+    // perfectly good free-tier key comes back 402 "insufficient API
+    // credit" — the exact error this header exists to prevent.
     url: 'https://api.fish.audio/v1/tts',
     method: 'POST',
     headers: {
       Authorization: `Bearer ${key}`,
       'Content-Type': 'application/json',
+      model: settingsStore.getFishTtsModel(),
     },
     body: JSON.stringify({ text: 'hi', format: 'mp3' }),
   }),

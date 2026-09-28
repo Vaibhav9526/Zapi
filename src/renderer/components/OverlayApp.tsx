@@ -473,6 +473,36 @@ export function OverlayApp() {
     ttsRef.current = null;
   }, []);
 
+  // ── OS-voice fallback (speechSynthesis) ─────────────────────────────
+  // Main emits speak-text when no TTS provider is configured — the
+  // platform voice reads the reply instead. Every call cancels the
+  // current utterance first: a stale paragraph must never talk over a
+  // newer reply.
+  const stopOsVoice = useCallback(() => {
+    try {
+      window.speechSynthesis?.cancel();
+    } catch { /* some Electron builds expose a dead stub — ignore */ }
+  }, []);
+  const speakText = useCallback((text: string, rate: number) => {
+    const synth = window.speechSynthesis;
+    if (!synth || !text) return;
+    synth.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    // rate arrives from main; clamp into the Web Speech range so a
+    // malformed value can't throw.
+    utterance.rate = Number.isFinite(rate) ? Math.min(10, Math.max(0.1, rate)) : 1;
+    utterance.pitch = 1;
+    // Prefer a natural Microsoft en-* voice (Windows-first target).
+    // getVoices() can return [] until 'voiceschanged' fires — falling
+    // through to the platform default is fine; nothing blocks on it.
+    const voices = synth.getVoices();
+    const preferred =
+      voices.find((v) => /^en[-_]/i.test(v.lang) && /zira|aria|guy/i.test(v.name)) ??
+      voices.find((v) => /^en[-_]/i.test(v.lang));
+    if (preferred) utterance.voice = preferred;
+    synth.speak(utterance);
+  }, []);
+
   useEffect(() => {
     const resetVad = () => {
       vadChunksRef.current = [];
@@ -749,8 +779,12 @@ export function OverlayApp() {
 
     // Main broadcasts 'stop-audio' to every overlay on each cancel
     // boundary (new turn, agent step, app quit). A buffer already handed
-    // to the overlay would otherwise keep playing under the interruption.
-    const unsubStopAudio = window.flicky.onStopAudio(() => stopCurrentTts());
+    // to the overlay would otherwise keep playing under the interruption —
+    // same for the OS voice, which has no buffer reference to key on.
+    const unsubStopAudio = window.flicky.onStopAudio(() => {
+      stopCurrentTts();
+      stopOsVoice();
+    });
 
     return () => {
       unsubStart();
@@ -760,6 +794,7 @@ export function OverlayApp() {
       // Silence any in-flight TTS too — the overlay going away (display
       // unplug) must not leave an orphaned voice talking to an empty room.
       stopCurrentTts();
+      stopOsVoice();
       // Real teardown on unmount — stopMic only mutes the worklet so
       // back-to-back PTT turns stay warm. When the overlay actually
       // goes away (display unplug, app quit) we release the mic and
@@ -779,7 +814,7 @@ export function OverlayApp() {
       void audioCtxRef.current?.close();
       audioCtxRef.current = null;
     };
-  }, [stopCurrentTts]);
+  }, [stopCurrentTts, stopOsVoice]);
 
   const setCursorModeSync = useCallback((mode: CursorMode) => {
     setCursorMode(mode);
@@ -1054,6 +1089,12 @@ export function OverlayApp() {
       window.flicky.onPlaySfx((name) => {
         if (cursorOnDisplayRef.current) playSfx(name);
       }),
+      // OS-voice fallback (main emits when no TTS provider is set). Same
+      // one-voice-per-setup rule as the chimes — broadcast or single
+      // target, only the cursor-bearing overlay may speak.
+      window.flicky.onSpeakText((text, rate) => {
+        if (cursorOnDisplayRef.current) speakText(text, rate);
+      }),
     ];
 
     return () => {
@@ -1071,12 +1112,13 @@ export function OverlayApp() {
       sfxRef.current.clear();
       if (returnAnimRef.current) cancelAnimationFrame(returnAnimRef.current);
     };
-  }, [setCursorModeSync, setCompanionPosSync, startReturnAnimation, hopToScenePoint, playSfx]);
+  }, [setCursorModeSync, setCompanionPosSync, startReturnAnimation, hopToScenePoint, playSfx, speakText]);
 
   useEffect(() => {
     if (voiceState === 'listening') {
       // User started a new turn — interrupt anything Zapi was saying.
       stopCurrentTts();
+      stopOsVoice();
       setScenePoint(null);
       if (holdTimerRef.current) {
         clearTimeout(holdTimerRef.current);
@@ -1088,7 +1130,7 @@ export function OverlayApp() {
       }
       setCursorModeSync('following');
     }
-  }, [voiceState, setCursorModeSync, stopCurrentTts]);
+  }, [voiceState, setCursorModeSync, stopCurrentTts, stopOsVoice]);
 
   // A scene counts as showing until its fade completes — the guidance
   // must not whisper over an explanation that just ended.

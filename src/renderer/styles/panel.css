@@ -1929,3 +1929,21 @@ button.provider-pick:hover {
   border-radius: 10px;
   font-size: 12px; line-height: 1.45; color: var(--fl-warn);
 }
+
+/* ── MindTab searchable model picker ────────────────────────────── */
+.model-search { margin-bottom: 10px; }
+.model-scroll {
+  max-height: 280px;
+  overflow-y: auto;
+  padding-right: 4px; /* keeps the thin scrollbar off the row edges */
+  scrollbar-width: thin;
+  scrollbar-color: var(--fl-border-strong) transparent;
+}
+.model-scroll::-webkit-scrollbar { width: 6px; }
+.model-scroll::-webkit-scrollbar-thumb {
+  background: var(--fl-border-strong); border-radius: 3px;
+}
+.model-list-note {
+  font-size: 11.5px; color: var(--fl-dim);
+  padding: 2px 2px 8px;
+}

@@ -456,6 +456,10 @@ app.whenReady().then(() => {
     // Hands-free acknowledgment chirp: a VAD utterance passed the wake
     // gate and became a turn.
     onVadAccepted: () => sendToOverlays(IPC.PLAY_SFX, 'heard'),
+    // OS-voice TTS fallback: broadcast, same one-voice rule as the
+    // chimes — OverlayApp only speaks on the cursor-bearing display,
+    // so a fan-out can't echo the reply once per monitor.
+    onSpeakText: (text, rate) => sendToOverlays(IPC.SPEAK_TEXT, text, rate),
   });
 
   // Seed the cached flag once — from here on the settings-changed and

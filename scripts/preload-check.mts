@@ -487,6 +487,7 @@ for (const c of preloadCalls) {
   // table rather than bending the send/invoke regex.
   const EXPECTED_LISTENERS: Array<{ method: string; key: string }> = [
     { method: 'onPlaySfx', key: 'PLAY_SFX' },
+    { method: 'onSpeakText', key: 'SPEAK_TEXT' },
   ];
   for (const { method, key } of EXPECTED_LISTENERS) {
     const re = new RegExp(

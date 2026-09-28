@@ -99,30 +99,51 @@ export function MindTab({ settings }: MindTabProps) {
   const providerLogoClass = isAnthropic ? '' : 'openai';
 
   // Model ids advertised by the configured endpoint (GET {base}/v1/models
-  // in main). Empty = unreachable/no key → the hardcoded picker stays.
-  // Refetches when the base URL or the key's presence flips.
-  const [remoteModels, setRemoteModels] = useState<string[]>([]);
+  // in main). null = still fetching; [] = endpoint returned nothing →
+  // fall back to the hardcoded picker with a heads-up line. Refetches
+  // when the base URL or the key's presence flips.
+  const [remoteModels, setRemoteModels] = useState<string[] | null>(null);
+  const [modelQuery, setModelQuery] = useState('');
   useEffect(() => {
     if (!isOpenAI) return;
     let cancelled = false;
+    setRemoteModels(null);
     window.flicky
       .listRemoteModels()
       .then((ids) => {
         if (!cancelled) setRemoteModels(ids ?? []);
       })
-      .catch(() => {});
+      .catch(() => {
+        if (!cancelled) setRemoteModels([]);
+      });
     return () => {
       cancelled = true;
     };
   }, [isOpenAI, settings.openAIBaseUrl, settings.apiKeyStatus.openai]);
 
   // Endpoint-returned ids win over the static list. The cast is safe on
-  // the wire — main forwards the selected id verbatim — but keeps
-  // OpenAIModel's static union for the hardcoded entries' type-checking.
+  // the wire — main forwards the selected id verbatim (provider/model ids
+  // like 'openai/gpt-5' round-trip fine) — but keeps OpenAIModel's static
+  // union for the hardcoded entries' type-checking.
   const openAiItems: Array<ModelEntry<OpenAIModel>> =
-    remoteModels.length > 0
+    remoteModels && remoteModels.length > 0
       ? remoteModels.map((id) => ({ id: id as OpenAIModel, name: id, sub: '' }))
       : OPENAI_MODELS;
+
+  // Substring filter, case-insensitive. The current selection always
+  // pins to the top — even when the endpoint dropped it or the filter
+  // excludes it — so the active id never scrolls away.
+  const mq = modelQuery.trim().toLowerCase();
+  const selectedOpenAIItem: ModelEntry<OpenAIModel> | null = settings.selectedOpenAIModel
+    ? (openAiItems.find((m) => m.id === settings.selectedOpenAIModel) ?? {
+        id: settings.selectedOpenAIModel,
+        name: settings.selectedOpenAIModel,
+        sub: '',
+      })
+    : null;
+  const visibleOpenAiItems = openAiItems.filter(
+    (m) => m.id !== settings.selectedOpenAIModel && (!mq || m.id.toLowerCase().includes(mq)),
+  );
 
   return (
     <>
@@ -206,26 +227,64 @@ export function MindTab({ settings }: MindTabProps) {
       <>
         <div className="section">
           <div className="section-title" style={{ marginBottom: 14 }}>Model</div>
-            <div className="model-list">
-              {isAnthropic
-                ? CLAUDE_MODELS.map((m) => (
+            {isAnthropic ? (
+              <div className="model-list">
+                {CLAUDE_MODELS.map((m) => (
+                  <button
+                    key={m.id}
+                    className={`model-item ${settings.selectedModel === m.id ? 'on' : ''}`}
+                    onClick={() => window.flicky.setModel(m.id)}
+                  >
+                    <div className="model-radio" />
+                    <div className="model-meta">
+                      <div className="model-name">{m.name}</div>
+                      <div className="model-sub">{m.sub}</div>
+                    </div>
+                    {m.tag && <div className={`model-tag ${m.tag.cls}`}>{m.tag.label}</div>}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <>
+                <input
+                  className="text-input model-search"
+                  type="text"
+                  value={modelQuery}
+                  onChange={(e) => setModelQuery(e.target.value)}
+                  placeholder={
+                    remoteModels && remoteModels.length > 0
+                      ? `search ${remoteModels.length} endpoint models…`
+                      : 'search models…'
+                  }
+                  spellCheck={false}
+                  autoComplete="off"
+                  aria-label="Search OpenAI-compatible models"
+                />
+                {remoteModels !== null && remoteModels.length === 0 && (
+                  <div className="model-list-note">
+                    endpoint didn&apos;t return a list — showing built-in picks
+                  </div>
+                )}
+                <div className="model-list model-scroll">
+                  {selectedOpenAIItem && (
                     <button
-                      key={m.id}
-                      className={`model-item ${settings.selectedModel === m.id ? 'on' : ''}`}
-                      onClick={() => window.flicky.setModel(m.id)}
+                      className="model-item on"
+                      onClick={() => window.flicky.setOpenAIModel(selectedOpenAIItem.id)}
                     >
                       <div className="model-radio" />
                       <div className="model-meta">
-                        <div className="model-name">{m.name}</div>
-                        <div className="model-sub">{m.sub}</div>
+                        <div className="model-name">{selectedOpenAIItem.name}</div>
+                        {selectedOpenAIItem.sub && (
+                          <div className="model-sub">{selectedOpenAIItem.sub}</div>
+                        )}
                       </div>
-                      {m.tag && <div className={`model-tag ${m.tag.cls}`}>{m.tag.label}</div>}
+                      <div className="model-tag info">selected</div>
                     </button>
-                  ))
-                : openAiItems.map((m) => (
+                  )}
+                  {visibleOpenAiItems.map((m) => (
                     <button
                       key={m.id}
-                      className={`model-item ${settings.selectedOpenAIModel === m.id ? 'on' : ''}`}
+                      className="model-item"
                       onClick={() => window.flicky.setOpenAIModel(m.id)}
                     >
                       <div className="model-radio" />
@@ -236,7 +295,12 @@ export function MindTab({ settings }: MindTabProps) {
                       {m.tag && <div className={`model-tag ${m.tag.cls}`}>{m.tag.label}</div>}
                     </button>
                   ))}
-            </div>
+                  {mq && visibleOpenAiItems.length === 0 && (
+                    <div className="model-list-note">no models match &ldquo;{modelQuery}&rdquo;</div>
+                  )}
+                </div>
+              </>
+            )}
             {isOpenAI && (
               <>
                 <div className="label">Custom model id (optional)</div>
