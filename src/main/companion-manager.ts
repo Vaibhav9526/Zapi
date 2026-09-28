@@ -65,7 +65,9 @@ import type {
   StreamVisibility,
   StreamWindowBounds,
   PermissionStatus,
+  AgentDriverType,
 } from '../shared/types';
+import { HOTKEY_DEFAULTS } from '../shared/hotkeys';
 
 export interface CompanionCallbacks {
   onVoiceStateChanged: (state: VoiceState) => void;
@@ -207,6 +209,9 @@ export class CompanionManager {
   /** Agent accelerator — same three-part contract as the other two hotkeys. */
   private agentPttShortcut: string;
   private reRegisterAgentShortcut: ((accel: string) => boolean) | null = null;
+  /** Abort accelerator — the panic stop, rebindable like the rest. */
+  private abortShortcut: string;
+  private reRegisterAbortShortcut: ((accel: string) => boolean) | null = null;
   /**
    * Monotonic turn counter. A new PTT press (or VAD utterance) bumps
    * this; any still-running LLM callbacks from the previous turn check
@@ -255,6 +260,7 @@ export class CompanionManager {
 
     this.dictationShortcut = settingsStore.get('dictationShortcut');
     this.agentPttShortcut = settingsStore.get('agentPttShortcut');
+    this.abortShortcut = settingsStore.get('abortShortcut') ?? HOTKEY_DEFAULTS.abort;
     this.orchestrator = new AgentOrchestrator((agentId) => this.buildAgentDeps(agentId));
     this.routines = new RoutineScheduler({
       listRoutines: () => settingsStore.listRoutines(),
@@ -347,6 +353,32 @@ export class CompanionManager {
       onSceneClear: () => {
         this.callbacks.onScene(null);
         this.callbacks.onSceneCue(null);
+      },
+      // Agent annotation: the runtime hands over the step's cues, and the
+      // existing scene channel carries them. No beat *scheduling* — the cue
+      // explains the action happening now, so it must not be queued behind
+      // the talk-turn dwell timer.
+      //
+      // The SCENE_CUE emit is still required, though: InkLayer reveals
+      // cues[0..beat] and returns an empty drawable list while beat is null
+      // (InkLayer.tsx), so a scene with no beat renders nothing at all. One
+      // cumulative beat at the last index reveals the whole scene in a single
+      // step, which is the "all at once" behaviour this path wants. Order
+      // matters — the overlay's SCENE handler resets the beat to null, so the
+      // beat has to land after the cue list (the overlay pins
+      // sceneCuesRef synchronously, so back-to-back is safe).
+      //
+      // Routed through the same callbacks as a talk scene, so index.ts
+      // broadcasts it to every overlay + the stream and each renderer culls
+      // to its own display bounds — the agent path deliberately does not
+      // target a single display.
+      onScene: (cues) => {
+        // Guard the empty array: beat would be -1, which InkLayer treats as
+        // "nothing to draw", while a non-null scene would still latch
+        // sceneActive in main with no beat to clear it.
+        if (cues.length === 0) return;
+        this.callbacks.onScene({ cues });
+        this.callbacks.onSceneCue(cues.length - 1);
       },
     };
   }
@@ -478,6 +510,25 @@ export class CompanionManager {
     this.emitSettings();
   }
 
+  getAgentDriver(): AgentDriverType {
+    return settingsStore.get('agentDriver');
+  }
+
+  /**
+   * Switch the mouse/keyboard executor. No re-register step here (unlike the
+   * hotkey setters): the executors are chosen per run, so the next agent turn
+   * picks the new one up on its own.
+   *
+   * Deliberately does NOT stop an in-flight run the way setAgentEnabled does.
+   * Swapping drivers mid-run would mean abandoning a partially-moved mouse,
+   * and the driver picker is a setup-time choice. An already-running loop
+   * finishes on the driver it started with.
+   */
+  setAgentDriver(v: AgentDriverType): void {
+    settingsStore.set('agentDriver', v);
+    this.emitSettings();
+  }
+
   setRoutinesMuted(muted: boolean): void {
     // Mute silences routine announcements only — never a run, so the
     // scheduler's next evaluation doesn't depend on this value.
@@ -517,6 +568,53 @@ export class CompanionManager {
       step: 0,
       maxSteps: 0,
     });
+  }
+
+  /**
+   * Hard kill for the global abort hotkey (Ctrl+Esc). Unlike stopAgent,
+   * which politely stops the agent loop, this tears down *everything* in
+   * flight regardless of which agent owns it: the thinking pill, the speech,
+   * any scene the model is still drawing, and a turn that is mid-listen.
+   *
+   * Deliberately not a settings-toggleable stop: the point is that it always
+   * works, including when the user can't see the tray or the panel. No
+   * wasBusy guard either — a hard kill that early-returns when it thinks
+   * nothing is running would leave the one state we can't observe (a run that
+   * already unwound its status but is still mid-screenshot) alive.
+   *
+   * Unwind order matches resetFromMicError, plus the orchestrator stop: abort
+   * first so pending provider calls bail before state clears, then bump
+   * turnId so every in-flight isCurrent() gate stops mutating UI, then drop
+   * the agent runs themselves.
+   */
+  stopAll(): void {
+    console.warn('[Zapi] stopAll — global abort');
+
+    if (this.currentAbort) {
+      this.currentAbort.abort();
+      this.currentAbort = null;
+    }
+    this.turnId += 1;
+
+    // Every agent, not just main — a background agent can be the one holding
+    // the "thinking" pill. No id means the orchestrator sweeps all runtimes.
+    this.orchestrator.stop();
+
+    this.transcriptionProvider = null;
+    this.pendingStart = null;
+    this.isRecording = false;
+    this.forcedDictation = false;
+    this.micTestActive = false;
+
+    this.clearSceneTimers();
+    this.callbacks.onScene(null);
+    this.callbacks.onSceneCue(null);
+    this.callbacks.onAgentStatus({ agentId: AGENT_ID_MAIN, phase: 'idle', step: 0, maxSteps: 0 });
+    // Release the mic gate so the OS stops holding the capture device; a
+    // hard kill that leaves the mic hot looks like a hung app to the user.
+    this.callbacks.onStopAudioCapture();
+    this.stopSpeech();
+    this.setVoiceState('idle');
   }
 
   /**
@@ -650,6 +748,33 @@ export class CompanionManager {
     } else {
       console.warn('[Zapi] Failed to register agent shortcut', accelerator, '— reverting to', previous);
       this.reRegisterAgentShortcut(previous);
+    }
+    this.emitSettings();
+  }
+
+  setAbortShortcutReRegister(fn: (accel: string) => boolean): void {
+    this.reRegisterAbortShortcut = fn;
+  }
+
+  getAbortShortcut(): string {
+    return this.abortShortcut;
+  }
+
+  setAbortShortcut(accelerator: string): void {
+    const previous = this.abortShortcut;
+    if (!this.reRegisterAbortShortcut) {
+      this.abortShortcut = accelerator;
+      settingsStore.set('abortShortcut', accelerator);
+      this.emitSettings();
+      return;
+    }
+    const ok = this.reRegisterAbortShortcut(accelerator);
+    if (ok) {
+      this.abortShortcut = accelerator;
+      settingsStore.set('abortShortcut', accelerator);
+    } else {
+      console.warn('[Zapi] Failed to register abort shortcut', accelerator, '— reverting to', previous);
+      this.reRegisterAbortShortcut(previous);
     }
     this.emitSettings();
   }
@@ -1509,12 +1634,18 @@ export class CompanionManager {
       if (await this.applyVoiceSelfSetting(trimmed, isCurrent)) return;
     }
 
+    // The agent hotkey outranks dictation: pressing Ctrl+Shift+A while
+    // dictation mode is stuck on must still take control — the key IS the
+    // explicit consent. The forceAgent branch lives below, so its check is
+    // hoisted here to skip the dictation swallow.
+    const dictationSwallow = forcedDictation || (settingsStore.get('dictationEnabled') && !forceAgentTurn);
+
     // Dictation: the transcript IS the output — no screenshot, no model
     // call. Typed into the focused field when the user opted in,
     // otherwise left on the clipboard for a manual paste. A push-to-dictate
     // turn forces this branch even when the sticky mode is off; the flag
     // was already consumed at the top of this function.
-    if (fromVoice && (forcedDictation || settingsStore.get('dictationEnabled'))) {
+    if (fromVoice && dictationSwallow) {
       const preview = trimmed.length > 50 ? `${trimmed.slice(0, 50)}…` : trimmed;
       let autoTyped = false;
       if (settingsStore.get('autoTypeEnabled')) autoTyped = await typeText(trimmed);

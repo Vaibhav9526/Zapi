@@ -1,6 +1,7 @@
 import {
   parseAgentActions,
   parseFileTags,
+  parseScene,
   stripFileBlocks,
   TAG_STRIP_REGEX,
 } from './element-detector';
@@ -20,6 +21,7 @@ import type {
   ScreenCapture,
   VoiceState,
   AgentAction,
+  SceneCue,
 } from '../../shared/types';
 
 /**
@@ -107,6 +109,14 @@ export interface AgentRuntimeDeps {
   clearSceneTimers(): void;
   /** Broadcast a scene clear (voice-owning runtime only). */
   onSceneClear(): void;
+  /**
+   * Draw the step's scene cues immediately — no beat scheduling. An agent
+   * annotates what it is acting on *while* it acts, so a queued cue would
+   * arrive after the click it was meant to explain. Only called for the
+   * voice-owning runtime: a background agent's ink would land on top of
+   * the foreground agent's, or on the user's own scene.
+   */
+  onScene(cues: SceneCue[]): void;
 }
 
 /**
@@ -329,7 +339,25 @@ export class AgentRuntime {
             console.error(`[Zapi] [${this.id}] artifact write failed:`, err);
           }
         }
-        const actions = parseAgentActions(stripFileBlocks(fullText), screenshots);
+        // One strip, two consumers: the action parser and the scene parser
+        // both read `tagText`, never the raw reply. A [POINT:] or [ACT:...]
+        // sitting inside a script the model just wrote is file content, and
+        // must not draw on the user's screen or move their mouse.
+        const tagText = stripFileBlocks(fullText);
+        const actions = parseAgentActions(tagText, screenshots);
+
+        // Scene cues: the agent can annotate what it is acting on so the
+        // user can see the target without the driver dragging their mouse
+        // through a doodle. Drawn immediately — the cue explains the
+        // action happening now, so queueing it behind the beat scheduler
+        // would land it after the fact.
+        if (deps.ownsVoice) {
+          const scene = parseScene(tagText, screenshots);
+          if (scene && scene.cues.length > 0) {
+            deps.onScene(scene.cues);
+            analytics.trackSceneDrawn(scene.cues.map((c) => c.kind));
+          }
+        }
         // DSL-deaf models (typically OpenAI ones ignoring the prompt's tag
         // grammar) would otherwise chat pleasantly through every step while
         // the driver executes nothing. [ACT:done]/[ACT:fail] parse as

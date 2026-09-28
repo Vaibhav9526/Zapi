@@ -1,0 +1,13 @@
+import { CuaDriver } from "@trycua/cua-driver";
+const d = CuaDriver.create({ claudeCodeCompatibility: false });
+const parsed = JSON.parse(await d.listToolsJson()) as { tools: Array<Record<string, unknown>> };
+const la = parsed.tools.find((t) => t.name === "launch_app") as Record<string, unknown>;
+const sch = la.inputSchema as { required?: string[]; properties: Record<string, { description?: string }> };
+console.log("launch_app required:", sch.required);
+console.log("launch_app props:", Object.keys(sch.properties).join(", "));
+console.log("creates_new_application_instance:", String(sch.properties.creates_new_application_instance?.description ?? "").slice(0, 300));
+console.log("name:", String(sch.properties.name?.description ?? "").slice(0, 300));
+const { windows } = await d.listWindows({});
+console.log("notepad windows already open:", JSON.stringify(windows.filter((w) => /notepad/i.test(`${w.appName} ${w.title}`)).map((w) => ({ pid: w.pid, id: String(w.windowId), t: w.title, min: w.minimized }))));
+const apps = await d.listApps({});
+console.log("notepad-ish apps:", JSON.stringify(apps.apps.filter((a) => /notepad/i.test(a.name)).map((a) => ({ name: a.name, running: a.running, aumid: a.bundleId, path: a.launchPath, kind: a.kind }))));

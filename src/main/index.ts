@@ -883,6 +883,45 @@ app.whenReady().then(() => {
   registerAgentShortcut(companion.getAgentPttShortcut());
   companion.setAgentShortcutReRegister(registerAgentShortcut);
 
+  // Global hard-kill — rebindable like the other three hotkeys (a custom
+  // binding that survives registration replaces the default). Ctrl+Esc
+  // belongs to the Start menu: the shell claims it before RegisterHotKey
+  // sees it, so the default is Ctrl+Alt+Esc.
+  const abortHandler = (): void => {
+    companion?.stopAll();
+  };
+  let currentAbortShortcut = '';
+  function registerAbortShortcut(accelerator: string): boolean {
+    const previous = currentAbortShortcut;
+    try {
+      if (previous) globalShortcut.unregister(previous);
+      const ok = globalShortcut.register(accelerator, abortHandler);
+      if (ok) {
+        currentAbortShortcut = accelerator;
+        return true;
+      }
+    } catch (err) {
+      console.error('[Zapi] abort shortcut register failed:', err);
+    }
+    sendToPanel(
+      IPC.AI_ERROR,
+      `Couldn't register stop shortcut "${accelerator}" — it may be taken by Windows or another app.`,
+    );
+    if (previous) {
+      try {
+        globalShortcut.register(previous, abortHandler);
+        currentAbortShortcut = previous;
+      } catch (err) {
+        console.error('[Zapi] abort shortcut rollback failed:', err);
+        currentAbortShortcut = '';
+      }
+    }
+    return false;
+  }
+
+  registerAbortShortcut(companion.getAbortShortcut());
+  companion.setAbortShortcutReRegister(registerAbortShortcut);
+
   function suspendPttShortcut(): void {
     if (currentShortcut) {
       try { globalShortcut.unregister(currentShortcut); } catch { /* no-op */ }
@@ -895,12 +934,16 @@ app.whenReady().then(() => {
     if (currentAgentShortcut) {
       try { globalShortcut.unregister(currentAgentShortcut); } catch { /* no-op */ }
     }
+    if (currentAbortShortcut) {
+      try { globalShortcut.unregister(currentAbortShortcut); } catch { /* no-op */ }
+    }
   }
   function resumePttShortcut(): void {
     const desired = companion.getSettings().pushToTalkShortcut;
     registerPttShortcut(desired);
     registerDictationShortcut(companion.getDictationShortcut());
     registerAgentShortcut(companion.getAgentPttShortcut());
+    registerAbortShortcut(companion.getAbortShortcut());
   }
   ipcMain.on(IPC.SUSPEND_PUSH_TO_TALK_SHORTCUT, () => suspendPttShortcut());
   ipcMain.on(IPC.RESUME_PUSH_TO_TALK_SHORTCUT, () => resumePttShortcut());
@@ -953,6 +996,7 @@ app.whenReady().then(() => {
   ipcMain.on(IPC.SET_LAUNCH_AT_LOGIN, (_e, enabled) => companion.setLaunchAtLogin(enabled));
   ipcMain.on(IPC.SET_PUSH_TO_TALK_SHORTCUT, (_e, accel: string) => companion.setPushToTalkShortcut(accel));
   ipcMain.on(IPC.SET_AGENT_PTT_SHORTCUT, (_e, accel: string) => companion.setAgentPttShortcut(accel));
+  ipcMain.on(IPC.SET_ABORT_SHORTCUT, (_e, accel: string) => companion.setAbortShortcut(accel));
   ipcMain.on(IPC.SET_PTT_MODE, (_e, mode) => companion.setPttMode(mode));
   ipcMain.on(IPC.SET_AUTO_TYPE_ENABLED, (_e, enabled: boolean) => companion.setAutoTypeEnabled(enabled));
   ipcMain.on(IPC.SET_STREAM_VISIBILITY, (_e, v: StreamVisibility) => companion.setStreamVisibility(v));
@@ -966,6 +1010,13 @@ app.whenReady().then(() => {
   ipcMain.on(IPC.SET_DICTATION_SHORTCUT, (_e, accel: string) => companion.setDictationShortcut(accel));
   ipcMain.on(IPC.SET_AGENT_ENABLED, (_e, enabled: boolean) => companion.setAgentEnabled(enabled));
   ipcMain.on(IPC.SET_AGENT_MAX_STEPS, (_e, n: number) => companion.setAgentMaxSteps(n));
+  // Preload types this as a bare `string`, and settingsStore.set() is a plain
+  // generic write that validates nothing — so coerce here, at the wire, rather
+  // than letting an unrecognised driver reach disk. Same guard the store
+  // applies in readDisk, for the same reason.
+  ipcMain.on(IPC.SET_AGENT_DRIVER, (_e, d) => {
+    companion.setAgentDriver(settingsStore.coerceAgentDriver(d));
+  });
   ipcMain.on(IPC.SET_CUSTOM_OPENAI_MODEL, (_e, m: string) => companion.setCustomOpenAIModel(m));
   ipcMain.on(IPC.SET_OPENAI_BASE_URL, (_e, v: string) => companion.setOpenAIBaseUrl(v));
   // A named agentId stops just that agent's run; a bare stop (tray/stream

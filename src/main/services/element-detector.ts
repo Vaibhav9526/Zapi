@@ -244,12 +244,35 @@ export function parseScene(text: string, screenshots: ScreenCapture[]): Scene | 
 }
 
 // ── Agent actions ──────────────────────────────────────────────────────
-// The control DSL emitted in agent mode. Same coordinate convention as
-// scene cues: screenshot pixels in, display-space logical pixels out.
+// The control DSL emitted in agent mode. Desktop pointer coordinates keep
+// the scene convention (screenshot pixels in, display-space logical pixels
+// out); `:win` and `[ACT:el:…]` bypass that because their coordinates are
+// already in the target's own space.
+
+/**
+ * Placeholder `windowId` stamped by `[ACT:…:win]` at parse time. The real
+ * id is only known once the executor resolves its window binding, so this
+ * marks *scope*, not identity. See the parse handler for why a sentinel
+ * beats a new boolean field.
+ */
+export const WINDOW_SCOPE_SENTINEL = '@bound';
 
 const ACT_TAG_REGEX = new RegExp(
   [
-    String.raw`\[ACT:(?<ptr>click|dclick|rclick|move):(?<ptrx>${N}),(?<ptry>${N}):screen(?<ptrscr>\d+)\]`,
+    // Pointer scope is now a choice, not a fixed `:screenN` slot:
+    //   [ACT:click:x,y:win]       window-local px on the bound window
+    //   [ACT:click:x,y:screenN]   desktop px, mapped from the screenshot
+    // The `win` form deliberately does NOT name a display — under a bound
+    // window the coordinates belong to that window's own client area, so a
+    // screen index would be a lie, and running them through shotToDisplay
+    // would transform them a second time. The handler below branches on
+    // which group matched for exactly that reason.
+    String.raw`\[ACT:(?<ptr>click|dclick|rclick|move):(?<ptrx>${N}),(?<ptry>${N}):(?:screen(?<ptrscr>\d+)|win)\]`,
+    // Element dispatch — the preferred rung, because a UIA handle survives a
+    // reflow that raw pixels do not. Token is driver-issued, so it only has
+    // to be free of the two delimiters; same `[^:\]]+` shape as a POINT
+    // label. Verbs are click | set_value | invoke.
+    String.raw`\[ACT:el:(?<eltok>[^:\]]+):(?<elverb>click|set_value|invoke)\]`,
     String.raw`\[ACT:drag:(?<dx1>${N}),(?<dy1>${N}):(?<dx2>${N}),(?<dy2>${N}):screen(?<dscr>\d+)\]`,
     String.raw`\[ACT:type:(?<typetext>${ESCAPED})\]`,
     String.raw`\[ACT:key:(?<keytext>[^\]]+)\]`,
@@ -291,10 +314,41 @@ export function parseAgentActions(text: string, screenshots: ScreenCapture[]): A
     const g = (m.groups ?? {}) as Groups;
 
     if (g.ptr !== undefined) {
+      // `:win` — window-local px on the bound window. Passed through
+      // verbatim: shotToDisplay would rescale them against a screenshot
+      // that has nothing to do with that window's client area, and the
+      // result would be a point nowhere near the target.
+      //
+      // Marker choice: `AgentAction.windowId` is documented in shared/types
+      // as "presence + ':win' scope means x,y are window-local px", and the
+      // real window_id is only known once the executor has resolved the
+      // binding. So we stamp a named sentinel rather than a new boolean:
+      // a new field would mean editing the frozen contract, and an empty
+      // string would be present-but-falsy, which a later `if (a.windowId)`
+      // would silently drop. The executor overwrites this with the real id.
+      if (g.ptrscr === undefined) {
+        actions.push({
+          kind: g.ptr as AgentAction['kind'],
+          x: num(g.ptrx),
+          y: num(g.ptry),
+          windowId: WINDOW_SCOPE_SENTINEL,
+        });
+        continue;
+      }
       const screenIndex = num(g.ptrscr);
       const p = shotToDisplay(screenshots[screenIndex], num(g.ptrx), num(g.ptry));
       if (!p) continue;
       actions.push({ kind: g.ptr as AgentAction['kind'], x: p.x, y: p.y, screenIndex });
+    } else if (g.eltok !== undefined) {
+      // Element dispatch. The verb collapses onto existing kinds rather
+      // than adding new ones: the routing signal is `elementToken`, not
+      // the kind, and the executor delivers by handle. `invoke` is a
+      // press/activate, which is what a click already is; `set_value` is
+      // text going into a field, which is what `type` already is. Adding
+      // `set_value` to AgentActionKind would mean editing the frozen
+      // shared/types contract for a distinction nothing downstream needs.
+      const kind = g.elverb === 'set_value' ? 'type' : 'click';
+      actions.push({ kind, elementToken: g.eltok });
     } else if (g.dx1 !== undefined) {
       const screenIndex = num(g.dscr);
       const shot = screenshots[screenIndex];

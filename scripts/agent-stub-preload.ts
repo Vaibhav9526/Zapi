@@ -82,6 +82,31 @@ plugin({
         systemPreferences: {
           isTrustedAccessibilityClient: () => true,
         },
+        // AgentRuntime captures the screen every step, so a test that drives
+        // the real loop needs this. One source matching the fake display's
+        // id. `captureAllDisplays` reads the thumbnail size, scales it to
+        // fit MAX_DIMENSION, calls resize(), then toJPEG() — and skips the
+        // display on a zero-byte JPEG — so the stub implements that whole
+        // shape and returns a non-empty buffer. A mismatched thumbnail is
+        // how a smoke test ends up asserting coordinates no real run
+        // would ever produce.
+        desktopCapturer: {
+          getSources: async () => [
+            {
+              id: 'screen:7:0',
+              name: 'stub display',
+              display_id: '7',
+              thumbnail: {
+                getSize: () => ({ width: 1920, height: 1080 }),
+                resize: ({ width, height }: { width: number; height: number }) => ({
+                  getSize: () => ({ width, height }),
+                  toJPEG: () => Buffer.from('stub-jpeg'),
+                }),
+                toJPEG: () => Buffer.from('stub-jpeg'),
+              },
+            },
+          ],
+        },
       },
       loader: 'object',
     }));

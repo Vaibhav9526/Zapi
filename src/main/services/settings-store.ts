@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { app } from 'electron';
 import { writeFileAtomic } from './fs-util';
+import { HOTKEY_DEFAULTS, OS_RESERVED_ACCELERATORS, normalizeAccelerator } from '../../shared/hotkeys';
 import type {
   ClaudeModel,
   OpenAIModel,
@@ -16,6 +17,7 @@ import type {
   PttMode,
   TtsProvider,
   FishTtsModel,
+  AgentDriverType,
   AgentProfile,
   Routine,
 } from '../../shared/types';
@@ -51,6 +53,28 @@ export function coerceFishTtsModel(value: unknown): FishTtsModel {
   return (FISH_TTS_MODELS as readonly string[]).includes(candidate)
     ? (candidate as FishTtsModel)
     : DEFAULT_FISH_TTS_MODEL;
+}
+
+/**
+ * Every legal agent driver. Kept as a runtime list (not just the TS union) so
+ * an untrusted persisted value — or anything arriving off the IPC wire — can
+ * be validated rather than blindly cast.
+ */
+export const AGENT_DRIVERS: readonly AgentDriverType[] = ['nutjs', 'cua'];
+
+/**
+ * Fallback for an unknown/absent driver. 'cua' is the richer executor, so a
+ * corrupt value upgrades the agent rather than silently degrading it back to
+ * the plain native driver.
+ */
+export const DEFAULT_AGENT_DRIVER: AgentDriverType = 'cua';
+
+/** Narrow an untrusted value to a live AgentDriverType, defaulting to 'cua'. */
+export function coerceAgentDriver(value: unknown): AgentDriverType {
+  const candidate = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  return (AGENT_DRIVERS as readonly string[]).includes(candidate)
+    ? (candidate as AgentDriverType)
+    : DEFAULT_AGENT_DRIVER;
 }
 
 /** Id of the always-present default agent. Never archivable. */
@@ -198,6 +222,20 @@ export interface StoredSettings {
    */
   agentPttShortcut: string;
   agentMaxSteps: number;
+  /**
+   * Global hard-kill accelerator. Distinct from the three hold-to-speak
+   * bindings: this one is a tap, not a hold, and it is the escape hatch that
+   * must work even when no panel is focused — so it defaults away from the
+   * OS-reserved combos in shared/hotkeys.ts.
+   */
+  abortShortcut: string;
+  /**
+   * Which executor drives the mouse/keyboard for agent runs: 'nutjs' (the
+   * native lib, always available) or 'cua' (the model-authored executor).
+   * Read per run rather than captured at construction, so switching takes
+   * effect on the next agent turn without restarting anything.
+   */
+  agentDriver: AgentDriverType;
   customOpenAIModel: string;
   /** '' = api.openai.com; set to any OpenAI-compatible endpoint (clinepass, proxy). */
   openAIBaseUrl: string;
@@ -255,6 +293,11 @@ const DEFAULTS: StoredSettings = {
   // chords in the same corner of the keyboard is a recipe for a misfire
   // that hands the mouse to the agent.
   agentPttShortcut: 'Ctrl+Shift+A',
+  // Kept in lockstep with HOTKEY_DEFAULTS.abort so the store and the shared
+  // registry can't drift; readDisk re-asserts it for installs that predate
+  // the field.
+  abortShortcut: HOTKEY_DEFAULTS.abort,
+  agentDriver: DEFAULT_AGENT_DRIVER,
   agentEnabled: true,
   agentMaxSteps: 15,
   customOpenAIModel: '',
@@ -303,7 +346,26 @@ function readDisk(): StoredSettings {
     // free tier at load.
     const fishModelStale = merged.fishTtsModel !== coerceFishTtsModel(merged.fishTtsModel);
     merged.fishTtsModel = coerceFishTtsModel(merged.fishTtsModel);
-    if (changed || routines.changed || providerStale || fishModelStale) {
+    // abortShortcut is newer than the rest of the store, and unlike the
+    // neighbouring fields a bad value here is not cosmetic: a stale
+    // OS-reserved combo (Ctrl+Esc, from before the registry landed) or an
+    // unparseable string would register a hard-kill that either silently
+    // fails or never fires. Normalize, and fall back to the shared default
+    // when the result is empty or reserved.
+    const abortStale =
+      merged.abortShortcut !== normalizeAccelerator(merged.abortShortcut) ||
+      OS_RESERVED_ACCELERATORS.has(normalizeAccelerator(merged.abortShortcut));
+    const abortNormalized = normalizeAccelerator(merged.abortShortcut);
+    merged.abortShortcut =
+      !abortNormalized || OS_RESERVED_ACCELERATORS.has(abortNormalized)
+        ? HOTKEY_DEFAULTS.abort
+        : abortNormalized;
+    // Same coercion for the driver: an unrecognised value off disk would
+    // otherwise reach the executor picker as an unmatched string and leave
+    // the agent with no driver at all. Repair to 'cua' at load.
+    const agentDriverStale = merged.agentDriver !== coerceAgentDriver(merged.agentDriver);
+    merged.agentDriver = coerceAgentDriver(merged.agentDriver);
+    if (changed || routines.changed || providerStale || fishModelStale || abortStale || agentDriverStale) {
       // Persist the seed immediately: otherwise the repair only lives in
       // memory and the next launch re-derives it (harmless, but the file
       // would keep claiming a pre-multi-agent shape).

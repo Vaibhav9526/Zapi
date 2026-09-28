@@ -27,6 +27,7 @@
   },
   "dependencies": {
     "@nut-tree-fork/nut-js": "^4.2.6",
+    "@trycua/cua-driver": "0.28.2",
     "posthog-node": "^4.0.0"
   },
   "devDependencies": {

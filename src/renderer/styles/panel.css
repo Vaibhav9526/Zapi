@@ -1943,7 +1943,32 @@ button.provider-pick:hover {
 }
 
 /* ── MindTab searchable model picker ────────────────────────────── */
-.model-search { margin-bottom: 10px; }
+.model-search-row {
+  display: flex; align-items: stretch; gap: 8px;
+  margin-bottom: 10px;
+}
+.model-search-row .text-input { flex: 1; min-width: 0; }
+.model-save { flex-shrink: 0; }
+.model-save.saved {
+  background: var(--fl-ok-bg);
+  border-color: rgba(142, 189, 154, 0.5);
+  color: var(--fl-ok);
+}
+.model-current {
+  display: flex; align-items: center; gap: 8px;
+  margin-top: 4px;
+}
+.model-current-label {
+  font-size: 10px; font-weight: 700; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--fl-dim);
+}
+.model-current-id {
+  font-family: 'Geist Mono', 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 12px; color: var(--fl-ink);
+  background: var(--fl-glass-chip);
+  border: 1px solid var(--fl-glass-border);
+  border-radius: 8px; padding: 3px 9px;
+}
 .model-scroll {
   max-height: 280px;
   overflow-y: auto;
@@ -1987,3 +2012,26 @@ button.provider-pick:hover {
 .traffic-lights:hover .tl-glyph { opacity: 1; }
 .tl:disabled { cursor: default; }
 .tl:disabled:hover { filter: none; }
+
+/* ── Keyboard shortcuts editor (GeneralTab) ─────────────────────── */
+.hk-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px;
+}
+.hk-btn {
+  font: inherit; font-size: 11px; font-weight: 600;
+  padding: 4px 10px; border-radius: 999px;
+  background: var(--fl-glass-chip);
+  border: 1px solid var(--fl-glass-border);
+  color: var(--fl-muted);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+.hk-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.09); color: var(--fl-ink); }
+.hk-btn:disabled { opacity: 0.35; cursor: default; }
+.hk-btn.danger:hover:not(:disabled) {
+  background: var(--fl-danger-bg); border-color: rgba(216, 130, 130, 0.4);
+  color: var(--fl-danger);
+}
+.hk-unset { font-size: 11px; color: var(--fl-dim); font-style: italic; }
+.shortcut-edit { flex-wrap: wrap; }

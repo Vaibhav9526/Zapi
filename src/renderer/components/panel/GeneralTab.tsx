@@ -1,5 +1,14 @@
 import { useState } from 'react';
 import type { FlickySettings, MemoryStats } from '../../../shared/types';
+import {
+  HOTKEY_DEFS,
+  HOTKEY_DEFAULTS,
+  OS_RESERVED_ACCELERATORS,
+  acceleratorsEqual,
+  normalizeAccelerator,
+  type HotkeyDef,
+  type HotkeyId,
+} from '../../../shared/hotkeys';
 import { ShortcutCapture } from './ShortcutCapture';
 
 interface GeneralTabProps {
@@ -7,30 +16,29 @@ interface GeneralTabProps {
   memory: MemoryStats | null;
 }
 
+/** Settings field carrying each hotkey's accelerator. */
+const HOTKEY_FIELDS: Record<
+  HotkeyId,
+  'pushToTalkShortcut' | 'dictationShortcut' | 'agentPttShortcut' | 'abortShortcut'
+> = {
+  ptt: 'pushToTalkShortcut',
+  dictation: 'dictationShortcut',
+  agent: 'agentPttShortcut',
+  abort: 'abortShortcut',
+};
+
+/** One setter per binding — main re-registers the hotkey on each send. */
+const HOTKEY_SETTERS: Record<HotkeyId, (accel: string) => void> = {
+  ptt: (a) => window.flicky.setPushToTalkShortcut(a),
+  dictation: (a) => window.flicky.setDictationShortcut(a),
+  agent: (a) => window.flicky.setAgentPttShortcut(a),
+  abort: (a) => window.flicky.setAbortShortcut(a),
+};
+
 function formatTokens(n: number): string {
   if (n < 1000) return `${n}`;
   if (n < 1_000_000) return `${(n / 1000).toFixed(n >= 10_000 ? 0 : 1)}k`;
   return `${(n / 1_000_000).toFixed(1)}M`;
-}
-
-/**
- * Normalize an accelerator so two different spellings of the same chord
- * compare equal: lowercase, trimmed parts, modifier aliases folded
- * (Control→ctrl, Command/Cmd/Meta→meta), and parts sorted so
- * "Ctrl+Alt+D" and "Alt+Ctrl+D" are the same shortcut.
- */
-function normalizeShortcut(accel: string): string {
-  return accel
-    .split('+')
-    .map((p) => p.trim().toLowerCase())
-    .filter(Boolean)
-    .map((p) => {
-      if (p === 'control') return 'ctrl';
-      if (p === 'command' || p === 'cmd') return 'meta';
-      return p;
-    })
-    .sort()
-    .join('+');
 }
 
 function formatRelative(ts: number | null): string {
@@ -78,8 +86,9 @@ function StepsInput({ value, disabled }: { value: number; disabled?: boolean }) 
 }
 
 export function GeneralTab({ settings, memory }: GeneralTabProps) {
-  const [editingShortcut, setEditingShortcut] = useState(false);
-  const [editingDictationShortcut, setEditingDictationShortcut] = useState(false);
+  // Which hotkey row is mid-capture, and why its last Save was refused.
+  const [editingHotkey, setEditingHotkey] = useState<HotkeyId | null>(null);
+  const [captureError, setCaptureError] = useState<string | null>(null);
   const [isCompacting, setIsCompacting] = useState(false);
   const [compactStatus, setCompactStatus] = useState<
     { kind: 'success' | 'error'; message: string } | null
@@ -113,19 +122,41 @@ export function GeneralTab({ settings, memory }: GeneralTabProps) {
   const healthColor =
     pct < 60 ? 'var(--fl-ok)' : pct < 85 ? 'var(--fl-warn)' : 'var(--fl-danger)';
 
-  const shortcutKeys = settings.pushToTalkShortcut.split('+').filter(Boolean);
-  const dictationShortcutKeys = settings.dictationShortcut.split('+').filter(Boolean);
   const isMac = window.flicky.platform === 'darwin';
 
-  // Two global hotkeys now share this page — flag it when they collide.
-  // We warn rather than block: main owns registration and may reject the
-  // new binding anyway, so the setter still fires.
-  const pttEmpty = shortcutKeys.length === 0;
-  const dictationEmpty = dictationShortcutKeys.length === 0;
-  const shortcutConflict =
-    !pttEmpty &&
-    !dictationEmpty &&
-    normalizeShortcut(settings.pushToTalkShortcut) === normalizeShortcut(settings.dictationShortcut);
+  const bindingFor = (id: HotkeyId): string => settings[HOTKEY_FIELDS[id]];
+  const setBinding = (id: HotkeyId, accel: string) => HOTKEY_SETTERS[id](accel);
+
+  // Stored-vs-stored collisions surface on every affected row — same
+  // canonical comparison the main side uses before registering.
+  const conflictFor = (id: HotkeyId): HotkeyDef | null =>
+    HOTKEY_DEFS.find((d) => d.id !== id && acceleratorsEqual(bindingFor(id), bindingFor(d.id))) ??
+    null;
+
+  // A captured combo is vetted here before it ever reaches IPC: Windows
+  // claims the OS-reserved chords at the shell level, and a binding that
+  // shadows another command would register while breaking that command.
+  // Refusals stay inline so the capture box keeps listening.
+  const saveHotkey = (id: HotkeyId, accel: string) => {
+    if (OS_RESERVED_ACCELERATORS.has(normalizeAccelerator(accel))) {
+      setCaptureError('Windows owns this combo');
+      return;
+    }
+    const clash = HOTKEY_DEFS.find(
+      (d) => d.id !== id && acceleratorsEqual(accel, bindingFor(d.id)),
+    );
+    if (clash) {
+      setCaptureError(`conflicts with ${clash.label}`);
+      return;
+    }
+    setBinding(id, accel);
+    setCaptureError(null);
+    setEditingHotkey(null);
+  };
+
+  const resetAllHotkeys = () => {
+    for (const def of HOTKEY_DEFS) setBinding(def.id, HOTKEY_DEFAULTS[def.id]);
+  };
 
   return (
     <>
@@ -135,46 +166,95 @@ export function GeneralTab({ settings, memory }: GeneralTabProps) {
       <p className="main-lead">Shortcuts, memory, and the companion cursor.</p>
 
       <div className="section">
-        <div className="section-title" style={{ marginBottom: 10 }}>Shortcut</div>
-        <div className="row">
-          <div className="row-main">
-            <div className="row-t">Push to talk</div>
-            <div className="row-s">
-              {settings.pttMode === 'toggle'
-                ? 'tap once to start, tap again to stop'
-                : 'hold to speak, release to send'}
-            </div>
-            {pttEmpty && <div className="row-warn">no shortcut bound — you won't be able to talk</div>}
-            {shortcutConflict && (
-              <div className="row-warn">same keys as push-to-dictate — pick a different combo</div>
-            )}
-          </div>
-          {editingShortcut ? (
-            <ShortcutCapture
-              onSave={(accel) => {
-                window.flicky.setPushToTalkShortcut(accel);
-                setEditingShortcut(false);
-              }}
-              onCancel={() => setEditingShortcut(false)}
-            />
-          ) : (
-            <div className="shortcut-edit">
-              <div className="keys">
-                {shortcutKeys.map((k, i) => (
-                  <kbd key={`${k}-${i}`}>{k}</kbd>
-                ))}
-              </div>
-              <span className="rec" onClick={() => setEditingShortcut(true)}>edit</span>
-            </div>
-          )}
+        <div className="section-title hk-head">
+          Keyboard shortcuts
+          <button
+            className="btn xs subtle"
+            onClick={resetAllHotkeys}
+            title="Restore every binding to its default"
+          >
+            Reset all to defaults
+          </button>
         </div>
-        <div className="row">
+        {HOTKEY_DEFS.map((def) => {
+          const current = bindingFor(def.id);
+          const isBound = normalizeAccelerator(current) !== '';
+          const clash = conflictFor(def.id);
+          return editingHotkey === def.id ? (
+            <div className="row" key={def.id}>
+              <div className="row-main">
+                <div className="row-t">{def.label}</div>
+                <div className="row-s">{def.description}</div>
+                {captureError && <div className="row-warn">{captureError}</div>}
+              </div>
+              <ShortcutCapture
+                onSave={(accel) => saveHotkey(def.id, accel)}
+                onCancel={() => {
+                  setEditingHotkey(null);
+                  setCaptureError(null);
+                }}
+              />
+            </div>
+          ) : (
+            <div className="row" key={def.id}>
+              <div className="row-main">
+                <div className="row-t">{def.label}</div>
+                <div className="row-s">{def.description}</div>
+                {clash && <div className="row-warn">conflicts with {clash.label}</div>}
+                {!isBound && (
+                  <div className="row-warn">not bound — this shortcut won&apos;t fire</div>
+                )}
+              </div>
+              <div className="shortcut-edit">
+                <div className="keys">
+                  {isBound ? (
+                    current
+                      .split('+')
+                      .filter(Boolean)
+                      .map((k, i) => <kbd key={`${k}-${i}`}>{k}</kbd>)
+                  ) : (
+                    <span className="hk-unset">not set</span>
+                  )}
+                </div>
+                <button
+                  className="hk-btn"
+                  onClick={() => {
+                    setCaptureError(null);
+                    setEditingHotkey(def.id);
+                  }}
+                  title="Record a new combo"
+                >
+                  record
+                </button>
+                <button
+                  className="hk-btn"
+                  onClick={() => setBinding(def.id, HOTKEY_DEFAULTS[def.id])}
+                  disabled={acceleratorsEqual(current, HOTKEY_DEFAULTS[def.id])}
+                  title={`Reset to ${HOTKEY_DEFAULTS[def.id]}`}
+                >
+                  default
+                </button>
+                <button
+                  className="hk-btn danger"
+                  onClick={() => setBinding(def.id, '')}
+                  disabled={!isBound}
+                  title="Unbind this shortcut"
+                >
+                  clear
+                </button>
+              </div>
+            </div>
+          );
+        })}
+        <div className="row" style={{ borderBottom: 'none' }}>
           <div className="row-main">
-            <div className="row-t">Trigger style</div>
+            <div className="row-t">Push-to-talk style</div>
             <div className="row-s">
               {isMac
                 ? 'macOS only supports tap-toggle — Electron can’t see the key release for hold-to-talk.'
-                : 'pick how the shortcut behaves'}
+                : settings.pttMode === 'toggle'
+                  ? 'tap once to start, tap again to stop'
+                  : 'hold to speak, release to send'}
             </div>
           </div>
           <div className="ptt-mode-seg" role="tablist" aria-label="Push-to-talk mode">
@@ -226,36 +306,6 @@ export function GeneralTab({ settings, memory }: GeneralTabProps) {
         </div>
         <div className="row">
           <div className="row-main">
-            <div className="row-t">Push-to-dictate hotkey</div>
-            <div className="row-s">hold to dictate — types into the focused field</div>
-            {dictationEmpty && (
-              <div className="row-warn">no shortcut bound — dictation hotkey won't fire</div>
-            )}
-            {shortcutConflict && (
-              <div className="row-warn">same keys as push to talk — pick a different combo</div>
-            )}
-          </div>
-          {editingDictationShortcut ? (
-            <ShortcutCapture
-              onSave={(accel) => {
-                window.flicky.setDictationShortcut(accel);
-                setEditingDictationShortcut(false);
-              }}
-              onCancel={() => setEditingDictationShortcut(false)}
-            />
-          ) : (
-            <div className="shortcut-edit">
-              <div className="keys">
-                {dictationShortcutKeys.map((k, i) => (
-                  <kbd key={`${k}-${i}`}>{k}</kbd>
-                ))}
-              </div>
-              <span className="rec" onClick={() => setEditingDictationShortcut(true)}>edit</span>
-            </div>
-          )}
-        </div>
-        <div className="row">
-          <div className="row-main">
             <div className="row-t">Agent mode</div>
             <div className="row-s">zapi agent … takes over mouse + keyboard</div>
           </div>
@@ -271,6 +321,37 @@ export function GeneralTab({ settings, memory }: GeneralTabProps) {
             <div className="row-s">hard stop for one agent run — 3 to 30 screenshot → act loops</div>
           </div>
           <StepsInput value={settings.agentMaxSteps} disabled={!settings.agentEnabled} />
+        </div>
+        <div className="row">
+          <div className="row-main">
+            <div className="row-t">Control backend</div>
+            <div className="row-s">
+              cua drives apps in the background so your mouse stays yours; falls back to
+              real-cursor mode automatically when unavailable
+            </div>
+          </div>
+          <div className="ptt-mode-seg" role="tablist" aria-label="Agent control backend">
+            <button
+              role="tab"
+              aria-selected={settings.agentDriver === 'cua'}
+              className={`seg ${settings.agentDriver === 'cua' ? 'on' : ''}`}
+              disabled={!settings.agentEnabled}
+              title="Drive apps in the background — your cursor stays free"
+              onClick={() => window.flicky.setAgentDriver('cua')}
+            >
+              Background (keeps your cursor)
+            </button>
+            <button
+              role="tab"
+              aria-selected={settings.agentDriver === 'nutjs'}
+              className={`seg ${settings.agentDriver === 'nutjs' ? 'on' : ''}`}
+              disabled={!settings.agentEnabled}
+              title="Drive the real mouse and keyboard"
+              onClick={() => window.flicky.setAgentDriver('nutjs')}
+            >
+              Real cursor
+            </button>
+          </div>
         </div>
         <div className="row">
           <div className="row-main">

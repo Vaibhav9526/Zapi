@@ -311,6 +311,111 @@ const shots: ScreenCapture[] = [fakeShot(11), fakeShot(12)];
   );
 }
 
+// ── CUA M2 scope: [ACT:el:…] and the :win pointer scope ────────────────
+// docs/PLAN-cua-driver.md "DSL deltas". Two additions, both backward
+// compatible: an element-dispatch tag carrying a UIA handle, and a `:win`
+// scope that means the coordinates are already window-local.
+{
+  // Element dispatch. The verb collapses onto existing kinds; the routing
+  // signal is elementToken, not kind.
+  const el = parseAgentActions('[ACT:el:tok123:click]', shots);
+  check(
+    el.length === 1 && el[0].kind === 'click' && el[0].elementToken === 'tok123',
+    'cua: [ACT:el:tok:click] dispatches by element token',
+    el[0],
+  );
+  check(
+    el[0].x === undefined && el[0].screenIndex === undefined,
+    'cua: an element action carries no coordinates at all',
+    { x: el[0].x, screenIndex: el[0].screenIndex },
+  );
+  const setVal = parseAgentActions('[ACT:el:tok456:set_value]', shots);
+  check(
+    setVal.length === 1 &&
+      setVal[0].kind === 'type' &&
+      setVal[0].elementToken === 'tok456',
+    'cua: set_value collapses onto kind:type but keeps the token',
+    setVal[0],
+  );
+  const invoke = parseAgentActions('[ACT:el:tok789:invoke]', shots);
+  check(
+    invoke.length === 1 && invoke[0].kind === 'click' && invoke[0].elementToken === 'tok789',
+    'cua: invoke collapses onto kind:click and keeps the token',
+    invoke[0],
+  );
+  check(
+    parseAgentActions('[ACT:el:tok:fly]', shots).length === 0,
+    'cua: an unknown element verb is skipped, not guessed',
+  );
+  check(
+    parseAgentActions('[ACT:el::click]', shots).length === 0,
+    'cua: an empty element token is skipped',
+  );
+
+  // `:win` — window-local px, passed through untouched. The display
+  // mapping must NOT run: shotToDisplay would rescale against a screenshot
+  // that has nothing to do with that window's client area.
+  const win = parseAgentActions('[ACT:click:100,50:win]', shots);
+  check(
+    win.length === 1 && win[0].x === 100 && win[0].y === 50,
+    'cua: :win coordinates stay verbatim (no screenshot→display mapping)',
+    win[0],
+  );
+  check(
+    win[0].windowId !== undefined && win[0].screenIndex === undefined,
+    'cua: :win marks window scope and carries no screen index',
+    { windowId: win[0].windowId, screenIndex: win[0].screenIndex },
+  );
+  check(
+    parseAgentActions('[ACT:move:10,10:win]', shots)[0]?.windowId !== undefined,
+    'cua: :win also applies to move (hover on a bound window)',
+  );
+
+  // The desktop form is unchanged — this is the regression guard for
+  // "normal actions unaffected". 2880px screenshot over a 1920 logical
+  // display means 100px maps to 100 * 2/3.
+  const desk = parseAgentActions('[ACT:click:100,50:screen0]', shots);
+  check(
+    desk.length === 1 &&
+      desk[0].kind === 'click' &&
+      approx(desk[0].x as number, 100 * S) &&
+      approx(desk[0].y as number, 50 * S) &&
+      desk[0].screenIndex === 0,
+    'cua: :screenN pointer actions still map to display space',
+    desk[0],
+  );
+  check(
+    desk[0].windowId === undefined,
+    'cua: a desktop action is not window-scoped',
+  );
+
+  // Both new forms compose with the rest of the batch, and file stripping
+  // still wins over both — a tag inside a deliverable is content, not
+  // an instruction to the user's real cursor.
+  const mixed = parseAgentActions(
+    '[ACT:el:a1:click] [ACT:click:5,5:win] [ACT:type:hi] [ACT:done:ok]',
+    shots,
+  );
+  check(
+    mixed.length === 4 &&
+      mixed[0].elementToken === 'a1' &&
+      mixed[1].windowId !== undefined &&
+      mixed[2].kind === 'type' &&
+      mixed[3].kind === 'done',
+    'cua: new and old actions interleave in one batch in order',
+    mixed.map((a) => a.kind),
+  );
+  const smuggled = parseAgentActions(
+    '[FILE:notes.md]\n[ACT:el:sneaky:click]\n[ACT:click:9,9:win]\n[/FILE][ACT:el:real:click]',
+    shots,
+  );
+  check(
+    smuggled.length === 1 && smuggled[0].elementToken === 'real',
+    'cua: el/:win tags inside a [FILE:] block are stripped first',
+    smuggled,
+  );
+}
+
 // ── extractAgentTask ────────────────────────────────────────────────────
 {
   check(
@@ -867,6 +972,56 @@ const shots: ScreenCapture[] = [fakeShot(11), fakeShot(12)];
     parseMemos(parseMemos('[MEMO:x]').join(' ') && '[MEMO:repeat]').length === 1 &&
       parseMemos('[MEMO:repeat]')[0] === 'repeat',
     'memo: repeat parses are stable (regex lastIndex reset)',
+  );
+}
+
+// ── Agent replies can carry scene cues ─────────────────────────────────
+// agent-orchestrator now runs parseScene over each step's reply so the
+// agent can show the user what it is acting on. These cover the inputs to
+// that call; the dep routing itself is asserted in agent-abort.mts (E),
+// which can drive a real AgentRuntime against the electron stubs.
+{
+  // A step that both acts and annotates: the actions still parse, and the
+  // cues come out of the same file-stripped text.
+  const reply =
+    'pointing at the save button. [POINT:412,38:save:screen0] [ACT:click:412,38:screen0] [ACT:wait:300]';
+  const actions = parseAgentActions(reply, shots);
+  const scene = parseScene(reply, shots);
+  check(
+    actions.length === 2 && actions[0].kind === 'click',
+    'agent: a scene-bearing reply still parses its [ACT:...] actions',
+    actions.map((a) => a.kind),
+  );
+  check(
+    scene !== null && scene.cues.length === 1 && scene.cues[0].kind === 'point',
+    'agent: the same reply yields a point cue for the overlay',
+    scene?.cues.map((c) => c.kind),
+  );
+  check(
+    scene !== null &&
+      approx(scene.cues[0].x, 412 * S) &&
+      approx(scene.cues[0].y, 38 * S),
+    'agent: the agent cue maps to display space like any other',
+    scene && { x: scene.cues[0].x, y: scene.cues[0].y },
+  );
+
+  // The invariant the orchestrator depends on: a drawing tag inside a
+  // deliverable is file content, never an instruction to the screen. If
+  // this ever parses, a python file the model wrote would draw on the
+  // user's desktop — and an [ACT:click] beside it would move their mouse.
+  const withFile =
+    'saving. [ACT:done:done] [FILE:notes.md]\n[POINT:100,200:painted:screen0]\n[ACT:click:100,200:screen0]\n[/FILE]';
+  const stripped = stripFileBlocks(withFile);
+  const fileScene = parseScene(stripped, shots);
+  check(
+    fileScene === null,
+    'agent: a cue inside a [FILE:] block is not drawn (stripped first)',
+    fileScene?.cues.map((c) => c.kind),
+  );
+  check(
+    parseAgentActions(stripped, shots).length === 1,
+    'agent: an [ACT:click] inside a [FILE:] block is not executed',
+    parseAgentActions(stripped, shots).map((a) => a.kind),
   );
 }
 

@@ -288,13 +288,17 @@
   animation: ink-draw 0.5s ease-out both;
 }
 
-/* Faint offset echo — the second marker pass that sells "hand-drawn". */
+/* Second pen pass — the hand-drawn double-stroke. The markup feeds it a
+   harder-jittered copy of the same path (not a translate of the first),
+   so the two passes disagree along their whole length the way two pen
+   strokes do. 40% is the rough.js ratio: enough to read as a second pass,
+   not enough to muddy the ink. */
 .ink-echo {
   fill: none;
   stroke-linecap: round;
   stroke-linejoin: round;
   stroke-dasharray: 1;
-  opacity: 0.22;
+  opacity: 0.4;
   animation: ink-draw 0.5s ease-out both;
 }
 
@@ -335,6 +339,35 @@
 @keyframes ink-hilite-in {
   from { opacity: 0; }
   to   { opacity: 1; }
+}
+
+/* Hand-drawn border around a written label. The glyphs live in a separate
+   unfiltered layer (InkLayer renders them outside the wobble group) so
+   the text stays crisp while this border wanders. The -0.5° lean is on
+   the element, in the same transform the text is given, so the two can
+   never drift apart. */
+.ink-label {
+  fill: none;
+  stroke: rgba(255, 157, 10, 0.55);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 1;
+  animation: ink-draw 0.5s ease-out both;
+}
+
+/* The scene's single wobble group. No rules needed — the filter itself
+   lives on the element in InkLayer — but the name keeps the layer
+   findable in devtools and gives us a hook if the filter ever needs a
+   fallback for a host without SVG filters. */
+.ink-wobble {
+  pointer-events: none;
+}
+
+/* Unfiltered text layer: above the ink so a label reads even when a
+   stroke passes behind it. */
+.ink-text {
+  pointer-events: none;
 }
 
 .ink-write {
@@ -440,13 +473,19 @@
   /* Accent stays in the border mix — it's the multi-agent colour
      signal — but diluted into the glass hairline instead of opaque. */
   border: 1px solid color-mix(in srgb, var(--echo-accent) 35%, rgba(255, 255, 255, 0.14));
-  border-radius: 16px;
+  /* Sketch pill: four different radii per corner is the CSS-only way to
+     get a hand-drawn outline (the ink layer's SVG jitter has no say over
+     DOM chrome). Still one box, still fully rounded enough to read as a
+     pill. */
+  border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px;
   box-shadow:
     0 0 16px rgba(10, 132, 255, 0.10),
     0 6px 18px rgba(0, 0, 0, 0.3),
     inset 0 1px 0 rgba(255, 255, 255, 0.08);
   color: #f5f5f7;
-  font-size: 11px;
+  /* 12px is the legibility floor for a chip label — at 11px the
+     condensed model labels stop resolving on a 1× display. */
+  font-size: 12px;
   font-weight: 500;
   white-space: nowrap;
   /* Action labels come from the model — cap them so a chatty label
@@ -459,9 +498,12 @@
   animation: agent-chip-fade 1.4s ease-out forwards;
 }
 
+/* The lean lives in the keyframes, not the base rule: the fade animation
+   owns `transform`, and an animation always wins over a normal
+   declaration — a base `rotate()` here would simply never render. */
 @keyframes agent-chip-fade {
-  0%   { opacity: 0; transform: translateY(4px); }
-  15%  { opacity: 1; transform: translateY(0); }
+  0%   { opacity: 0; transform: translateY(4px) rotate(-0.5deg); }
+  15%  { opacity: 1; transform: translateY(0) rotate(-0.5deg); }
   70%  { opacity: 1; }
   100% { opacity: 0; }
 }
@@ -988,7 +1030,8 @@
 @media (prefers-reduced-motion: reduce) {
   .ink-draw,
   .ink-under,
-  .ink-echo {
+  .ink-echo,
+  .ink-label {
     animation: none;
   }
 

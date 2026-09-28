@@ -162,6 +162,12 @@ const api = {
   /** Update the dedicated agent-control global hotkey. */
   setAgentPttShortcut: (shortcut: string): void =>
     ipcRenderer.send(IPC.SET_AGENT_PTT_SHORTCUT, shortcut),
+  /** Rebind the global abort/stop-everything hotkey. */
+  setAbortShortcut: (shortcut: string): void =>
+    ipcRenderer.send(IPC.SET_ABORT_SHORTCUT, shortcut),
+  /** Switch the agent control backend (cua background vs nutjs cursor). */
+  setAgentDriver: (driver: string): void =>
+    ipcRenderer.send(IPC.SET_AGENT_DRIVER, driver),
 
   toggleCursor: (enabled: boolean): void => ipcRenderer.send(IPC.TOGGLE_CURSOR, enabled),
   setLaunchAtLogin: (enabled: boolean): void => ipcRenderer.send(IPC.SET_LAUNCH_AT_LOGIN, enabled),

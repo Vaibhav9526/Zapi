@@ -22,9 +22,10 @@
  *     the wait ends — granted OR aborted — so the caller's status card
  *     can't be left reading 'waiting'.
  */
-import type { AgentAction, ScreenCapture } from '../src/shared/types';
+import type { AgentAction, ScreenCapture, SceneCue } from '../src/shared/types';
 import { runAgentActions } from '../src/main/services/agent-driver';
 import { acquireInputLease, leaseHolder } from '../src/main/services/input-lease';
+import type { AgentRuntimeDeps } from '../src/main/services/agent-orchestrator';
 
 declare const Bun: unknown;
 
@@ -314,6 +315,85 @@ function realActions(executed: string[]): string[] {
     nutCalls.slice(nutBefore).map((c) => c.api),
   );
   check(leaseHolder() === null, 'lease: free after the aborted batch');
+}
+
+// ── E) Scene cues from an agent reply (voice-owning runtime only) ───────
+// The user bug this fixes: "draw something" on the agent hotkey made the
+// driver scrub the physical mouse across the desktop. The model now
+// annotates with scene tags instead, and the runtime forwards them to the
+// overlay — but ONLY for the runtime that owns the mic, because a
+// background agent's ink would land on top of the foreground agent's.
+{
+  const { AgentRuntime } = await import('../src/main/services/agent-orchestrator');
+
+  /** Minimal turn control: the runtime only needs a counter and an abort slot. */
+  const makeDeps = (ownsVoice: boolean, reply: string) => {
+    const scenes: SceneCue[][] = [];
+    const turn = {
+      beginTurn: () => 1,
+      currentTurnId: () => 1,
+      setAbort: () => {},
+      currentAbort: () => null,
+    };
+    return {
+      scenes,
+      deps: {
+        turn,
+        ownsVoice,
+        streamMind: async (
+          _prompt: string,
+          _shots: ScreenCapture[],
+          _history: unknown[],
+          _mode: string,
+          _signal: AbortSignal,
+          cbs: {
+            onComplete: (t: string) => void;
+            onChunk: (c: string) => void;
+            onError: (e: Error) => void;
+          },
+        ) => {
+          cbs.onComplete(reply);
+        },
+        recordExchange: async () => {},
+        emitMemoryStats: () => {},
+        synthesizeSpeech: async () => null,
+        playSpeech: () => {},
+        onStatus: () => {},
+        onAction: () => {},
+        onChatEntryAdded: () => {},
+        onAiResponseChunk: () => {},
+        onAiResponseComplete: () => {},
+        clearSceneTimers: () => {},
+        onSceneClear: () => {},
+        onScene: (cues: SceneCue[]) => scenes.push(cues),
+      } as unknown as AgentRuntimeDeps,
+    };
+  };
+
+  // A step that annotates its target and then clicks it.
+  const reply =
+    'pointing at save. [POINT:960,540:save:screen0] [ACT:done:saved]';
+
+  const owning = makeDeps(true, reply);
+  await new AgentRuntime('main', owning.deps).run('save the file');
+  check(
+    owning.scenes.length === 1 && owning.scenes[0].length === 1,
+    'scene: a voice-owning run forwards the step\'s cues to the overlay',
+    owning.scenes.map((s) => s.length),
+  );
+  check(
+    owning.scenes[0]?.[0]?.kind === 'point',
+    'scene: the forwarded cue is the point the model emitted',
+    owning.scenes[0]?.[0]?.kind,
+  );
+
+  const background = makeDeps(false, reply);
+  await new AgentRuntime('bg', background.deps).run('save the file');
+  check(
+    background.scenes.length === 0,
+    'scene: a background agent draws nothing (would hijack the user\'s ink)',
+    background.scenes.length,
+  );
 }
 
 // ── Summary ─────────────────────────────────────────────────────────────

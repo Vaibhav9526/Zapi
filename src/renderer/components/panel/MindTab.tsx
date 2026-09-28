@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type {
   FlickySettings,
   ClaudeModel,
@@ -130,20 +130,41 @@ export function MindTab({ settings }: MindTabProps) {
       ? remoteModels.map((id) => ({ id: id as OpenAIModel, name: id, sub: '' }))
       : OPENAI_MODELS;
 
-  // Substring filter, case-insensitive. The current selection always
-  // pins to the top — even when the endpoint dropped it or the filter
-  // excludes it — so the active id never scrolls away.
-  const mq = modelQuery.trim().toLowerCase();
-  const selectedOpenAIItem: ModelEntry<OpenAIModel> | null = settings.selectedOpenAIModel
-    ? (openAiItems.find((m) => m.id === settings.selectedOpenAIModel) ?? {
-        id: settings.selectedOpenAIModel,
-        name: settings.selectedOpenAIModel,
-        sub: '',
-      })
-    : null;
-  const visibleOpenAiItems = openAiItems.filter(
-    (m) => m.id !== settings.selectedOpenAIModel && (!mq || m.id.toLowerCase().includes(mq)),
+  // Search-on-type: the list renders nothing until the field has text.
+  // What actually drives a turn is customOpenAIModel || selectedOpenAIModel.
+  const modelDraft = modelQuery.trim();
+  const mq = modelDraft.toLowerCase();
+  const effectiveModel = settings.customOpenAIModel.trim() || settings.selectedOpenAIModel;
+  const visibleOpenAiItems = mq
+    ? openAiItems.filter((m) => m.id.toLowerCase().includes(mq))
+    : [];
+
+  // ONE save path (click only stages the draft into the field — an
+  // earlier version applied on row click and felt laggy/uncontrolled):
+  // Enter or the Save button commits. A catalog id goes through
+  // setOpenAIModel and clears any custom override; anything else is a
+  // custom id. ✓ flashes on the button for ~1.2s after each save.
+  const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [savedFlash, setSavedFlash] = useState(false);
+  useEffect(
+    () => () => {
+      if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
+    },
+    [],
   );
+  const saveModel = () => {
+    if (!modelDraft) return;
+    if (openAiItems.some((m) => m.id === modelDraft)) {
+      window.flicky.setOpenAIModel(modelDraft as OpenAIModel);
+      if (settings.customOpenAIModel) window.flicky.setCustomOpenAIModel('');
+    } else {
+      window.flicky.setCustomOpenAIModel(modelDraft);
+    }
+    setModelQuery('');
+    setSavedFlash(true);
+    if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
+    savedTimerRef.current = setTimeout(() => setSavedFlash(false), 1200);
+  };
 
   return (
     <>
@@ -246,76 +267,81 @@ export function MindTab({ settings }: MindTabProps) {
               </div>
             ) : (
               <>
-                <input
-                  className="text-input model-search"
-                  type="text"
-                  value={modelQuery}
-                  onChange={(e) => setModelQuery(e.target.value)}
-                  placeholder={
-                    remoteModels && remoteModels.length > 0
-                      ? `search ${remoteModels.length} endpoint models…`
-                      : 'search models…'
-                  }
-                  spellCheck={false}
-                  autoComplete="off"
-                  aria-label="Search OpenAI-compatible models"
-                />
+                <div className="model-search-row">
+                  <input
+                    className="text-input"
+                    type="text"
+                    value={modelQuery}
+                    onChange={(e) => setModelQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        saveModel();
+                      } else if (e.key === 'Escape') {
+                        e.preventDefault();
+                        setModelQuery('');
+                      }
+                    }}
+                    placeholder={
+                      remoteModels && remoteModels.length > 0
+                        ? `search ${remoteModels.length} endpoint models…`
+                        : 'search models…'
+                    }
+                    spellCheck={false}
+                    autoComplete="off"
+                    aria-label="Search catalog models or type a custom model id"
+                  />
+                  <button
+                    className={`btn primary xs model-save ${savedFlash ? 'saved' : ''}`}
+                    onClick={saveModel}
+                    disabled={!modelDraft}
+                    title={modelDraft ? 'Apply this model id' : 'Type a model id first'}
+                  >
+                    {savedFlash ? '✓ saved' : 'Save'}
+                  </button>
+                </div>
                 {remoteModels !== null && remoteModels.length === 0 && (
                   <div className="model-list-note">
                     endpoint didn&apos;t return a list — showing built-in picks
                   </div>
                 )}
-                <div className="model-list model-scroll">
-                  {selectedOpenAIItem && (
-                    <button
-                      className="model-item on"
-                      onClick={() => window.flicky.setOpenAIModel(selectedOpenAIItem.id)}
-                    >
-                      <div className="model-radio" />
-                      <div className="model-meta">
-                        <div className="model-name">{selectedOpenAIItem.name}</div>
-                        {selectedOpenAIItem.sub && (
-                          <div className="model-sub">{selectedOpenAIItem.sub}</div>
-                        )}
+                {mq ? (
+                  <div className="model-list model-scroll">
+                    {visibleOpenAiItems.map((m) => (
+                      <button
+                        key={m.id}
+                        className={`model-item ${m.id === effectiveModel ? 'on' : ''}`}
+                        onClick={() => setModelQuery(m.id)}
+                        title="Stage this id — Save applies it"
+                      >
+                        <div className="model-radio" />
+                        <div className="model-meta">
+                          <div className="model-name">{m.name}</div>
+                          {m.sub && <div className="model-sub">{m.sub}</div>}
+                        </div>
+                        {m.tag && <div className={`model-tag ${m.tag.cls}`}>{m.tag.label}</div>}
+                      </button>
+                    ))}
+                    {visibleOpenAiItems.length === 0 && (
+                      <div className="model-list-note">
+                        no catalog matches — Save sets &ldquo;{modelDraft}&rdquo; as a custom id
                       </div>
-                      <div className="model-tag info">selected</div>
-                    </button>
-                  )}
-                  {visibleOpenAiItems.map((m) => (
-                    <button
-                      key={m.id}
-                      className="model-item"
-                      onClick={() => window.flicky.setOpenAIModel(m.id)}
-                    >
-                      <div className="model-radio" />
-                      <div className="model-meta">
-                        <div className="model-name">{m.name}</div>
-                        {m.sub && <div className="model-sub">{m.sub}</div>}
-                      </div>
-                      {m.tag && <div className={`model-tag ${m.tag.cls}`}>{m.tag.label}</div>}
-                    </button>
-                  ))}
-                  {mq && visibleOpenAiItems.length === 0 && (
-                    <div className="model-list-note">no models match &ldquo;{modelQuery}&rdquo;</div>
-                  )}
-                </div>
-              </>
-            )}
-            {isOpenAI && (
-              <>
-                <div className="label">Custom model id (optional)</div>
-                <input
-                  className="text-input"
-                  type="text"
-                  value={settings.customOpenAIModel}
-                  placeholder="e.g. gpt-6-luna"
-                  onChange={(e) => window.flicky.setCustomOpenAIModel(e.target.value)}
-                  spellCheck={false}
-                  autoComplete="off"
-                />
-                <p className="section-hint">
-                  overrides the picker — e.g. an OpenAI-compatible endpoint model like gpt-6-luna
-                </p>
+                    )}
+                  </div>
+                ) : (
+                  <>
+                    <div className="model-current">
+                      <span className="model-current-label">current</span>
+                      <span className="model-current-id">{effectiveModel}</span>
+                      {settings.customOpenAIModel.trim() !== '' && (
+                        <span className="model-tag info">custom</span>
+                      )}
+                    </div>
+                    <div className="model-list-note">
+                      type to search models — nothing applies until Save
+                    </div>
+                  </>
+                )}
               </>
             )}
           </div>

@@ -160,7 +160,18 @@ export interface AgentAction {
   /** scroll direction. */
   direction?: 'up' | 'down' | 'left' | 'right';
   screenIndex?: number;
+  /** cua-driver: UIA element handle from a fresh getWindowState snapshot —
+   *  snapshot-scoped, so it can never be reused across snapshots. */
+  elementToken?: string;
+  /** cua-driver: the bound window this action targets (window_id serialized
+   *  as string — driver side uses bigint; IPC-safe). Presence + ':win'
+   *  scope means x,y are window-local px, not display coords. */
+  windowId?: string;
 }
+
+/** Which control backend executes agent actions. 'cua' delivers to a bound
+ *  window via PostMessage — never touches the real cursor. */
+export type AgentDriverType = 'nutjs' | 'cua';
 
 // ── Agent Profiles (multi-agent "Clickys" model) ───────────────────────
 
@@ -424,6 +435,9 @@ export interface FlickySettings {
    * is forced to the agent loop with no wake word or verb detection.
    * Holding this key IS the takeover consent. */
   agentPttShortcut: string;
+  /** Global kill-switch binding (HOTKEY_DEFAULTS.abort). Rebindable — but
+   *  some chords (Ctrl+Esc) are shell-claimed and can never register. */
+  abortShortcut: string;
   /**
    * How the push-to-talk shortcut behaves:
    *   'hold'   — record while the key is held, send on release
@@ -471,6 +485,9 @@ export interface FlickySettings {
   agentEnabled: boolean;
   /** Hard cap on screenshot→act iterations inside one agent run. */
   agentMaxSteps: number;
+  /** Control backend: 'cua' = background per-window delivery (cursor stays
+   *  with the user); 'nutjs' = real-cursor foreground path (fallback). */
+  agentDriver: AgentDriverType;
   /**
    * Free-form OpenAI model id. When non-empty it wins over
    * selectedOpenAIModel — lets users point at newly released or custom
@@ -524,6 +541,7 @@ export const DEFAULT_SETTINGS: FlickySettings = {
   launchAtLogin: false,
   pushToTalkShortcut: 'Ctrl+Alt+X',
   agentPttShortcut: 'Ctrl+Shift+A',
+  abortShortcut: 'Ctrl+Alt+Esc',
   pttMode: 'hold',
   autoTypeEnabled: false,
   streamVisibility: 'off',
@@ -534,6 +552,7 @@ export const DEFAULT_SETTINGS: FlickySettings = {
   dictationShortcut: 'Ctrl+Alt+D',
   agentEnabled: true,
   agentMaxSteps: 15,
+  agentDriver: 'cua',
   customOpenAIModel: '',
   openAIBaseUrl: '',
   agents: [
@@ -616,6 +635,8 @@ export const IPC = {
   SET_LAUNCH_AT_LOGIN: 'set-launch-at-login',
   SET_PUSH_TO_TALK_SHORTCUT: 'set-push-to-talk-shortcut',
   SET_AGENT_PTT_SHORTCUT: 'set-agent-ptt-shortcut',
+  SET_ABORT_SHORTCUT: 'set-abort-shortcut',
+  SET_AGENT_DRIVER: 'set-agent-driver',
   SET_PTT_MODE: 'set-ptt-mode',
   SET_AUTO_TYPE_ENABLED: 'set-auto-type-enabled',
   SET_STREAM_VISIBILITY: 'set-stream-visibility',
