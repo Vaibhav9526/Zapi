@@ -1,6 +1,6 @@
 {
   "name": "zapi",
-  "version": "1.2.1",
+  "version": "0.2.0",
   "description": "ZAPI — a screen-aware AI companion for Windows that talks, draws on your screen, and drives your mouse + keyboard",
   "main": "dist/main/main/index.js",
   "author": {
@@ -63,11 +63,17 @@
       "target": [
         {
           "target": "dmg",
-          "arch": ["x64", "arm64"]
+          "arch": [
+            "x64",
+            "arm64"
+          ]
         },
         {
           "target": "zip",
-          "arch": ["x64", "arm64"]
+          "arch": [
+            "x64",
+            "arm64"
+          ]
         }
       ],
       "hardenedRuntime": true,
@@ -87,7 +93,10 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64", "arm64"]
+          "arch": [
+            "x64",
+            "arm64"
+          ]
         }
       ]
     },
@@ -101,7 +110,10 @@
     },
     "linux": {
       "icon": "assets/icons",
-      "target": ["AppImage", "deb"],
+      "target": [
+        "AppImage",
+        "deb"
+      ],
       "category": "Utility"
     },
     "publish": {
