@@ -1,5 +1,8 @@
 # ZAPI
 
+
+1st version 
+
 A screen-aware AI companion for **Windows**. Hold a hotkey and talk — Zapi sees your screen, answers out loud, draws arrows / circles / highlights right on your display to point things out, and can take the wheel and drive your mouse + keyboard when you ask it to.
 
 > **Inspired by [Clicky](https://www.clicky.so/)** by [Farza](https://github.com/farzaa) ([github.com/farzaa/clicky](https://github.com/farzaa/clicky)), and forked from **[Flicky](https://github.com/jvaught01/flicky)**.
