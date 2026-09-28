@@ -74,15 +74,24 @@
   align-items: center;
   gap: 8px;
   padding: var(--space-sm) var(--space-md);
-  background: var(--accent);
+  /* Accent-blue glass — the colour is the pointer's identity, so it
+     stays in the fill but diluted into the same translucent material
+     as the rest of the chrome. */
+  background: color-mix(in srgb, var(--accent) 58%, rgba(20, 20, 22, 0.45));
+  backdrop-filter: blur(18px) saturate(160%);
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.18);
   color: white;
   font-size: 12px;
   font-weight: 500;
-  border-radius: var(--radius-md);
+  border-radius: 10px;
   white-space: nowrap;
   animation: bubble-in 0.2s ease-out;
   pointer-events: none;
-  box-shadow: 0 4px 14px rgba(29, 78, 216, 0.35);
+  box-shadow:
+    0 4px 14px rgba(10, 132, 255, 0.28),
+    0 10px 28px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.14);
 }
 
 .pointing-bubble .bubble-text {
@@ -168,17 +177,17 @@
   transform: translateX(-50%);
   max-width: 480px;
   padding: 12px 16px;
-  background: rgba(20, 22, 28, 0.55);
-  backdrop-filter: blur(18px) saturate(160%);
-  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  background: rgba(20, 20, 22, 0.55);
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 16px;
   box-shadow:
     0 12px 32px rgba(0, 0, 0, 0.35),
     0 2px 8px rgba(0, 0, 0, 0.25),
     inset 0 1px 0 rgba(255, 255, 255, 0.08);
-  color: #e7e7ea;
-  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: #f5f5f7;
+  font-family: -apple-system, "Segoe UI", system-ui, sans-serif;
   font-size: 13px;
   pointer-events: none;
   transition: opacity 0.24s cubic-bezier(0.33, 1, 0.68, 1),
@@ -380,6 +389,9 @@
    multi-agent colouring landed. */
 :root {
   --echo-accent: #ff9d0a;
+  /* Overlay chrome rides the macOS dark accent (v2 palette) — scoped to
+     this document so the panel's own --accent token is untouched. */
+  --accent: #0a84ff;
 }
 
 .agent-echo {
@@ -422,14 +434,15 @@
   left: 24px;
   top: -12px;
   padding: 4px 10px;
-  background: rgba(20, 22, 28, 0.55);
-  backdrop-filter: blur(18px) saturate(160%);
-  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  background: rgba(20, 20, 22, 0.55);
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
   /* Accent stays in the border mix — it's the multi-agent colour
      signal — but diluted into the glass hairline instead of opaque. */
   border: 1px solid color-mix(in srgb, var(--echo-accent) 35%, rgba(255, 255, 255, 0.14));
   border-radius: 16px;
   box-shadow:
+    0 0 16px rgba(10, 132, 255, 0.10),
     0 6px 18px rgba(0, 0, 0, 0.3),
     inset 0 1px 0 rgba(255, 255, 255, 0.08);
   color: #f5f5f7;
@@ -472,12 +485,13 @@
   left: 10px;
   top: -32px;
   padding: 3px 9px;
-  background: rgba(20, 22, 28, 0.55);
-  backdrop-filter: blur(18px) saturate(160%);
-  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  background: rgba(20, 20, 22, 0.55);
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
   border: 1px solid color-mix(in srgb, var(--echo-accent) 35%, rgba(255, 255, 255, 0.14));
   border-radius: 12px;
   box-shadow:
+    0 0 16px rgba(10, 132, 255, 0.10),
     0 6px 18px rgba(0, 0, 0, 0.3),
     inset 0 1px 0 rgba(255, 255, 255, 0.08);
   color: color-mix(in srgb, var(--echo-accent) 45%, #ffffff);
@@ -531,12 +545,13 @@
 
 .agent-echo-chip-label {
   padding: 3px 9px;
-  background: rgba(20, 22, 28, 0.55);
-  backdrop-filter: blur(18px) saturate(160%);
-  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  background: rgba(20, 20, 22, 0.55);
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
   border: 1px solid color-mix(in srgb, var(--echo-accent) 35%, rgba(255, 255, 255, 0.14));
   border-radius: 12px;
   box-shadow:
+    0 0 16px rgba(10, 132, 255, 0.10),
     0 6px 18px rgba(0, 0, 0, 0.3),
     inset 0 1px 0 rgba(255, 255, 255, 0.08);
   color: color-mix(in srgb, var(--echo-accent) 45%, #ffffff);
@@ -655,15 +670,20 @@
   bottom: 24px;
   transform: translateX(-50%);
   padding: 8px 16px;
-  background: rgba(20, 22, 28, 0.55);
-  backdrop-filter: blur(18px) saturate(160%);
-  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  background: rgba(20, 20, 22, 0.6);
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
   /* Capsule stays — a pill is the macOS glass idiom — but the accent
      hairline drops into the glass border mix rather than a solid tint. */
   border: 1px solid color-mix(in srgb, var(--echo-accent) 35%, rgba(255, 255, 255, 0.14));
   border-radius: 999px;
+  /* "Ask Addy" float: ✦ glow ring in the macOS blue at low alpha, over
+     the layered soft shadow — the blue ring marks the live-run state;
+     the waiting variant strips it (a parked agent doesn't glow). */
   box-shadow:
-    0 8px 24px rgba(0, 0, 0, 0.35),
+    0 0 0 1px rgba(10, 132, 255, 0.22),
+    0 0 26px rgba(10, 132, 255, 0.16),
+    0 10px 28px rgba(0, 0, 0, 0.4),
     0 2px 6px rgba(0, 0, 0, 0.25),
     inset 0 1px 0 rgba(255, 255, 255, 0.08);
   color: #f5f5f7;
@@ -681,12 +701,24 @@
   pointer-events: none;
 }
 
+/* The ✦ brand mark — agent tint when one is stamped, macOS blue else. */
+.agent-pill::before {
+  content: '✦';
+  margin-right: 7px;
+  color: color-mix(in srgb, var(--echo-accent) 55%, #0a84ff);
+}
+
 /* Queued for the input lease — same pill shape but muted and slowly
    breathing, so a parked agent never reads as "currently driving"
    (that one keeps the solid border plus the cursor-side drive glow). */
 .agent-pill.waiting {
   border-color: color-mix(in srgb, var(--echo-accent) 18%, rgba(255, 255, 255, 0.12));
   color: rgba(245, 245, 247, 0.75);
+  /* No blue glow ring — a parked agent floats, it doesn't shine. */
+  box-shadow:
+    0 8px 24px rgba(0, 0, 0, 0.35),
+    0 2px 6px rgba(0, 0, 0, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
   animation: pill-waiting 2.4s ease-in-out infinite;
 }
 
@@ -746,10 +778,10 @@
   font-size: 10px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: rgba(231, 231, 234, 0.75);
-  background: rgba(20, 22, 28, 0.55);
-  backdrop-filter: blur(18px) saturate(160%);
-  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  color: rgba(235, 235, 245, 0.55);
+  background: rgba(20, 20, 22, 0.55);
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 999px;
   padding: 1px 7px;
@@ -765,9 +797,9 @@
   align-items: center;
   justify-content: center;
   font-size: 11px;
-  background: rgba(20, 22, 28, 0.55);
-  backdrop-filter: blur(18px) saturate(160%);
-  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  background: rgba(20, 20, 22, 0.55);
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
   box-shadow:
     0 4px 12px rgba(0, 0, 0, 0.3),
     inset 0 1px 0 rgba(255, 255, 255, 0.08);
@@ -813,9 +845,9 @@
 .buddy-face {
   position: absolute;
   padding: 2px 8px;
-  background: rgba(20, 22, 28, 0.55);
-  backdrop-filter: blur(18px) saturate(160%);
-  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  background: rgba(20, 20, 22, 0.55);
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 999px;
   box-shadow:

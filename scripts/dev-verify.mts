@@ -75,7 +75,7 @@ function smokeStep(file: string): StepResult {
 const PRELOAD_FOR: Array<[RegExp, string]> = [
   [/agent-abort\.mts$/, './scripts/agent-stub-preload.ts'],
   [/(?:selfsettings|speak-fallback)-smoke\.mts$/, './scripts/companion-stub-preload.ts'],
-  [/(?:store|chat|keystore|routines|artifact|suggestion|suggestion-parse|workspace)-smoke\.mts$/, './scripts/store-preload.ts'],
+  [/(?:store|chat|keystore|routines|artifact|suggestion|suggestion-parse|workspace|fish)-smoke\.mts$/, './scripts/store-preload.ts'],
 ];
 
 function preloadFor(file: string): string | null {

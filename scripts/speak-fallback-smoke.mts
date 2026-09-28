@@ -115,13 +115,17 @@ const synth = (t: string) => priv.synthesizeSpeech(t);
     'missing key: SPEAK_TEXT payload is tag-stripped text + settings.voiceSpeed',
     speakTexts,
   );
+  // First fallback of the session surfaces both cues once: the key toast
+  // ('add your key') plus the generic 'system voice' notice — and never
+  // again on later failures.
   check(
-    errors.some((e) => e === FALLBACK_CUE),
-    'missing key: once-per-session system-voice cue surfaced',
+    errors.filter((e) => e.includes('key in the panel to hear replies')).length === 1 &&
+      errors.filter((e) => e === FALLBACK_CUE).length === 1,
+    'missing key: first miss shows the key toast + one system-voice cue',
     errors,
   );
 
-  // Second miss → still emits voice but does not repeat the cue.
+  // Second miss → still emits voice but does not repeat either cue.
   const before = errors.length;
   speakTexts.length = 0;
   await synth('again.');
@@ -131,9 +135,8 @@ const synth = (t: string) => priv.synthesizeSpeech(t);
     speakTexts,
   );
   check(
-    errors.filter((e) => e === FALLBACK_CUE).length === 1 &&
-      errors.length === before,
-    'missing key: fallback cue fires once per session, not per turn',
+    errors.length === before,
+    'missing key: no new cue on the second miss (once per session)',
     errors,
   );
 
@@ -196,6 +199,59 @@ const synth = (t: string) => priv.synthesizeSpeech(t);
     speakTexts,
   );
   settingsStore.set('ttsProvider', 'fishaudio');
+}
+
+// ── b2) a session whose FIRST fallback is a throw announces the cue ────
+// The generic 'system voice' cue only fires when no key toast already
+// explained the fallback — a fresh manager proves the throw path's own
+// announcement still exists.
+{
+  const speakTexts2: Array<{ text: string; rate: number }> = [];
+  const errors2: string[] = [];
+  const mgr2 = new CompanionManager({
+    onVoiceStateChanged: () => {},
+    onTranscriptUpdate: () => {},
+    onAiResponseChunk: () => {},
+    onAiResponseComplete: () => {},
+    onError: (m) => errors2.push(m),
+    onScene: () => {},
+    onSceneCue: () => {},
+    onAgentStatus: () => {},
+    onAgentAction: () => {},
+    onTypeFulfilled: () => {},
+    onSettingsChanged: (_s: FlickySettings) => {},
+    onMemoryStatsChanged: () => {},
+    onChatEntryAdded: () => {},
+    onStartAudioCapture: () => {},
+    onStopAudioCapture: () => {},
+    onPlayAudio: () => {},
+    onStopAudio: () => {},
+    onCursorVisibilityChanged: () => {},
+    onStreamVisibilityChanged: () => {},
+    onSpeakText: (text, rate) => speakTexts2.push({ text, rate }),
+  });
+  mgr2.stopRoutines();
+  const priv2 = mgr2 as unknown as PrivateMgr;
+  priv2.fishTts = {
+    synthesize: async () => {
+      throw new Error('500');
+    },
+  };
+
+  await priv2.synthesizeSpeech('first failure speaks');
+  check(
+    speakTexts2.length === 1 &&
+      errors2.filter((e) => e === FALLBACK_CUE).length === 1,
+    'throw-first session: generic system-voice cue fires once',
+    { speakTexts2, errors2 },
+  );
+  await priv2.synthesizeSpeech('second failure');
+  check(
+    speakTexts2.length === 2 &&
+      errors2.filter((e) => e === FALLBACK_CUE).length === 1,
+    'throw-first session: second failure still speaks, cue does not repeat',
+    { speakTexts2, errors2 },
+  );
 }
 
 // ── c) provider success → NO emit ──────────────────────────────────────

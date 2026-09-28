@@ -11,6 +11,7 @@ import {
   parseScene,
   parseAgentActions,
   extractAgentTask,
+  looksLikeCommand,
   parseTypeTags,
   parseFileTags,
   parseMemos,
@@ -260,6 +261,50 @@ const shots: ScreenCapture[] = [fakeShot(11), fakeShot(12)];
     'agent: bare done has no text',
     bare,
   );
+  // open: one kind, target captured VERBATIM — no escape processing, so
+  // backslashes and spaces in a real path survive (the `type` convention
+  // would eat them). A `]` bounds the payload; it is illegal in a Windows
+  // path, so the tag simply ends there.
+  const open = parseAgentActions(
+    '[ACT:open:https://youtube.com/watch?v=abc]' +
+      '[ACT:open:notepad]' +
+      '[ACT:open:C:\\Program Files\\Zapi\\notes.md]' +
+      '[ACT:open:%TEMP%]',
+    shots,
+  );
+  check(
+    open.length === 4 &&
+      open.every((a) => a.kind === 'open') &&
+      open[0].text === 'https://youtube.com/watch?v=abc' &&
+      open[1].text === 'notepad' &&
+      open[2].text === 'C:\\Program Files\\Zapi\\notes.md',
+    'agent: open target captured verbatim (url / app / spaced path)',
+    open,
+  );
+  check(
+    open[3]?.text === '%TEMP%',
+    'agent: open target is not expanded or altered (driver refuses %VAR%)',
+    open[3],
+  );
+  const emptyTarget = parseAgentActions('[ACT:open:]', shots);
+  check(
+    emptyTarget.length === 1 && emptyTarget[0].text === '',
+    'agent: open with empty target still parses — the driver rejects it',
+    emptyTarget,
+  );
+  check(
+    parseAgentActions('[ACT:open]', shots).length === 0,
+    'agent: open with no target skipped',
+  );
+  // The shell-metachar rule lives in the driver, but the parser must not
+  // mangle a target the driver would later refuse: the payload reaches it
+  // unchanged (validation, not mangling).
+  const hostile = parseAgentActions('[ACT:open:calc.exe & del C:\\x]', shots);
+  check(
+    hostile.length === 1 && hostile[0].text === 'calc.exe & del C:\\x',
+    'agent: open payload passes through unvalidated for the driver to reject',
+    hostile,
+  );
   check(
     parseAgentActions('[ACT:bogus:1]', shots).length === 0,
     'agent: unknown tag skipped',
@@ -366,6 +411,31 @@ const shots: ScreenCapture[] = [fakeShot(11), fakeShot(12)];
     'trigger edge: "hey agent, scroll down"',
     extractAgentTask('hey agent, scroll down'),
   );
+}
+
+// ── looksLikeCommand: PTT imperative routing ─────────────────────────────
+// A bare imperative acts on screen from push-to-talk only (the keypress is
+// the opt-in); always-on VAD keeps requiring a wake token. These cover the
+// anchored lead plus the two near-misses the trailing \b exists to reject.
+{
+  const fires = [
+    'open youtube',
+    'play kishore kumar',
+    'search stackoverflow',
+    'volume up',
+    'Open Notepad',
+  ];
+  for (const t of fires) {
+    check(looksLikeCommand(t) === true, `command: "${t}" -> true`, looksLikeCommand(t));
+  }
+  const noFires = [
+    'openness is nice',
+    'playing around yesterday',
+    'can you open youtube for me',
+  ];
+  for (const t of noFires) {
+    check(looksLikeCommand(t) === false, `command: "${t}" -> false`, looksLikeCommand(t));
+  }
 }
 
 // ── extractAgentTask anchoring (N1 regressions) ────────────────────────

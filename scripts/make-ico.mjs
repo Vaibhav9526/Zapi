@@ -2,9 +2,10 @@
 /**
  * ZAPI asset generator — regenerates every icon the app ships from one
  * self-contained script (no native modules, no network): the mark is a
- * rounded-square tile with a diagonal #5b7cff → #7b4dff gradient and a
- * bold white "Z". Pure-Node rasterizer (rounded-rect SDF + point-in-poly,
- * 4× supersampling) + zlib PNG encoder + ICO/ICNS container packers.
+ * macOS-style *squircle* tile (superellipse, n=5) carrying a near-black →
+ * indigo gradient, a white four-point sparkle, and a soft top highlight.
+ * Pure-Node rasterizer (superellipse SDF + point-in-poly, 4×
+ * supersampling) + zlib PNG encoder + ICO/ICNS container packers.
  *
  *   node scripts/make-ico.mjs
  *
@@ -26,25 +27,51 @@ const ASSETS = join(dirname(fileURLToPath(import.meta.url)), '..', 'assets');
 
 // ── Mark geometry (normalized 0..1 over the tile) ───────────────────
 
-const GRAD_A = [0x5b, 0x7c, 0xff]; // top-left
-const GRAD_B = [0x7b, 0x4d, 0xff]; // bottom-right
-const TILE_R = 0.22; // corner radius as a fraction of tile size
+// Near-black with a blue cast up top, indigo at the bottom: a macOS-style
+// icon is a lit object, not a flat color chip, and the dark corner keeps
+// the white sparkle legible against the gradient's light end.
+const GRAD_A = [0x0d, 0x0d, 0x14]; // top-left
+const GRAD_B = [0x4b, 0x3c, 0xe0]; // bottom-right
+/**
+ * Superellipse exponent. n=2 is an ellipse, n→∞ a rectangle; Apple's
+ * app-icon squircle sits around n=5, which is what makes the corners read
+ * as "squircle" instead of either.
+ */
+const SQUIRCLE_N = 5;
+
+// ── Sparkle glyph ───────────────────────────────────────────────────
 
 /**
- * "Z" as a single polygon: top bar, diagonal down-left, bottom bar.
- * `t` is the stroke weight; small sizes get a heavier stroke so the
- * glyph survives 16px rasterization.
+ * Four-point sparkle as one simple polygon: outer tips on the axes, inner
+ * (concave) points on the diagonals. Straight sides are fine at every
+ * size we ship; the sparkle identity comes from the long/short ratio.
  */
-function zPolygon(t) {
-  const x0 = 0.26, x1 = 0.74, y0 = 0.24, y1 = 0.76;
-  // Horizontal offset of the diagonal edges — keeps the diagonal's
-  // perceived weight close to the bar thickness.
-  const d = t * ((x1 - x0) / (y1 - y0)) * 0.95;
-  return [
-    [x0, y0], [x1, y0], [x1, y0 + t], [x0 + d, y1 - t],
-    [x1, y1 - t], [x1, y1], [x0, y1], [x0, y1 - t],
-    [x1 - d, y0 + t], [x0, y0 + t],
-  ];
+function sparklePolygon(cx, cy, R, r) {
+  const pts = [];
+  for (let i = 0; i < 4; i++) {
+    const a = -Math.PI / 2 + (i * Math.PI) / 2; // tip
+    const inner = a + Math.PI / 4; // waist
+    pts.push([cx + R * Math.cos(a), cy + R * Math.sin(a)]);
+    pts.push([cx + r * Math.cos(inner), cy + r * Math.sin(inner)]);
+  }
+  return pts;
+}
+
+/**
+ * The mark: one big sparkle, plus a small one on its shoulder.
+ *
+ * Small sizes get a fatter waist and a slightly shorter reach. A sparkle
+ * scaled linearly is four hairlines at 16px, and those blur into a blob
+ * at tray scale; widening the waist keeps the four-point read while the
+ * tips stay pointed.
+ */
+function sparkleParts(withSmall, waistBoost = 1) {
+  const R = 0.315 * (waistBoost > 1 ? 0.95 : 1);
+  const parts = [sparklePolygon(0.5, 0.53, R, 0.072 * waistBoost)];
+  // The small companion only earns its pixels from 32px up; below that it
+  // is three grey pixels of mush next to the main glyph.
+  if (withSmall) parts.push(sparklePolygon(0.775, 0.275, 0.125, 0.029 * waistBoost));
+  return parts;
 }
 
 function pointInPoly(u, v, poly) {
@@ -60,21 +87,28 @@ function pointInPoly(u, v, poly) {
   return inside;
 }
 
-/** Signed distance to the rounded tile, negative inside. */
-function tileSDF(u, v, r) {
-  const px = Math.abs(u - 0.5) - (0.5 - r);
-  const py = Math.abs(v - 0.5) - (0.5 - r);
-  const ax = Math.max(px, 0), ay = Math.max(py, 0);
-  return Math.hypot(ax, ay) + Math.min(Math.max(px, py), 0) - r;
+/**
+ * Pseudo-signed distance to the squircle: the superellipse implicit
+ * function divided by its gradient magnitude, which turns
+ * |x|^n + |y|^n - 1 into something whose units are roughly pixels. Only
+ * the sign (inside/outside) and a soft 1-2px edge really matter here.
+ */
+function tileSDF(u, v) {
+  const x = Math.abs(2 * u - 1);
+  const y = Math.abs(2 * v - 1);
+  const f = Math.pow(x, SQUIRCLE_N) + Math.pow(y, SQUIRCLE_N) - 1;
+  // d/du of x^n is n·x^(n-1)·2, likewise for v.
+  const grad = 2 * SQUIRCLE_N * Math.hypot(Math.pow(x, SQUIRCLE_N - 1), Math.pow(y, SQUIRCLE_N - 1));
+  return f / (grad || 1e-6);
 }
 
 /**
- * One subsample → [r,g,b,a]. Tile is a diagonal gradient with a soft
- * top sheen; the Z is flat white. Everything outside the tile is
+ * One subsample → [r,g,b,a]. Tile is a diagonal gradient with a soft top
+ * sheen; the sparkle is flat white. Everything outside the tile is
  * transparent so the icon sits cleanly on any taskbar.
  */
-function shade(u, v, zPoly) {
-  const sd = tileSDF(u, v, TILE_R);
+function shade(u, v, sparkles) {
+  const sd = tileSDF(u, v);
   if (sd > 0) return [0, 0, 0, 0];
   const t = Math.min(1, Math.max(0, (u + v) / 2));
   const sheen = 0.10 * Math.max(0, 1 - v * 2.4); // gentle light from the top
@@ -86,19 +120,21 @@ function shade(u, v, zPoly) {
   const cr = r + (255 - r) * mixW;
   const cg = g + (255 - g) * mixW;
   const cb = b + (255 - b) * mixW;
-  if (pointInPoly(u, v, zPoly)) return [255, 255, 255, 255];
+  for (const poly of sparkles) {
+    if (pointInPoly(u, v, poly)) return [255, 255, 255, 255];
+  }
   return [cr, cg, cb, 255];
 }
 
 /**
- * Render at `size` with 4× SSAA. Stroke weight bumps up below 48px so
- * the Z stays legible in the tray.
+ * Render at `size` with 4× SSAA. The companion sparkle is dropped below
+ * 32px and the main glyph's waist is fattened below 24px (see
+ * sparkleParts).
  */
 function render(size) {
   const S = 4;
   const N = size * S;
-  const t = size <= 48 ? 0.17 : 0.16;
-  const z = zPolygon(t);
+  const sparkles = sparkleParts(size >= 32, size < 24 ? 1.45 : 1);
   const out = Buffer.alloc(size * size * 4);
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
@@ -107,7 +143,7 @@ function render(size) {
         for (let sx = 0; sx < S; sx++) {
           const u = (x * S + sx + 0.5) / N;
           const v = (y * S + sy + 0.5) / N;
-          const [sr, sg, sb, sa] = shade(u, v, z);
+          const [sr, sg, sb, sa] = shade(u, v, sparkles);
           r += sr; g += sg; b += sb; a += sa;
         }
       }
@@ -209,25 +245,42 @@ function encodeICNS(pngsBySize) {
 
 // ── SVG source (same geometry as the rasterizer) ────────────────────
 
+/** Superellipse outline sampled densely enough to look smooth at 1024. */
+function squirclePath(VB) {
+  const STEPS = 256;
+  let d = '';
+  for (let i = 0; i <= STEPS; i++) {
+    const t = (i / STEPS) * Math.PI * 2;
+    const c = Math.cos(t);
+    const s = Math.sin(t);
+    const x = Math.sign(c) * Math.pow(Math.abs(c), 2 / SQUIRCLE_N);
+    const y = Math.sign(s) * Math.pow(Math.abs(s), 2 / SQUIRCLE_N);
+    d += `${i === 0 ? 'M' : 'L'}${(VB / 2 + (x * VB) / 2).toFixed(1)},${(VB / 2 + (y * VB) / 2).toFixed(1)}`;
+  }
+  return `${d}Z`;
+}
+
 function buildSVG() {
   const VB = 1024;
-  const z = zPolygon(0.16)
-    .map(([x, y]) => `${(x * VB).toFixed(1)},${(y * VB).toFixed(1)}`)
-    .join(' ');
+  const toPts = (poly) => poly.map(([x, y]) => `${(x * VB).toFixed(1)},${(y * VB).toFixed(1)}`).join(' ');
+  const hex = (c) => `#${c.map((n) => n.toString(16).padStart(2, '0')).join('')}`;
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${VB} ${VB}">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#5b7cff"/>
-      <stop offset="1" stop-color="#7b4dff"/>
+      <stop offset="0" stop-color="${hex(GRAD_A)}"/>
+      <stop offset="1" stop-color="${hex(GRAD_B)}"/>
     </linearGradient>
     <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#ffffff" stop-opacity="0.10"/>
       <stop offset="0.45" stop-color="#ffffff" stop-opacity="0"/>
     </linearGradient>
+    <path id="tile" d="${squirclePath(VB)}"/>
   </defs>
-  <rect width="${VB}" height="${VB}" rx="${(TILE_R * VB).toFixed(0)}" fill="url(#bg)"/>
-  <rect width="${VB}" height="${VB}" rx="${(TILE_R * VB).toFixed(0)}" fill="url(#sheen)"/>
-  <polygon points="${z}" fill="#ffffff"/>
+  <use href="#tile" fill="url(#bg)"/>
+  <use href="#tile" fill="url(#sheen)"/>
+${sparkleParts(true)
+  .map((poly) => `  <polygon points="${toPts(poly)}" fill="#ffffff"/>`)
+  .join('\n')}
 </svg>
 `;
 }

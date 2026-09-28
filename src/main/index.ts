@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Tray, Menu, globalShortcut, screen, ipcMain, shell, nativeImage, session } from 'electron';
+import { app, BrowserWindow, Tray, Menu, globalShortcut, screen, ipcMain, shell, nativeImage, session, Notification } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import { CompanionManager } from './companion-manager';
@@ -101,6 +101,60 @@ let lastVoiceState = 'idle';
 let lastAgentStatus: AgentStatus | null = null;
 /** Whether a scene is currently playing (cue beats animating). */
 let sceneActive = false;
+
+/**
+ * Panel is the surface the user is already reading agent state on — a toast
+ * on top of it is pure duplication, so suppress notifications while it has
+ * focus. Only the panel gates this: the overlays are click-through and the
+ * stream window is a live feed the user may not be watching, but neither
+ * reliably reports focus the way the panel does.
+ */
+function panelHasFocus(): boolean {
+  return Boolean(panelWindow && !panelWindow.isDestroyed() && panelWindow.isFocused());
+}
+
+/** Display name for an agent id, falling back to the id itself. */
+function agentLabel(agentId: string): string {
+  try {
+    const found = settingsStore.listAgents().find((a) => a.id === agentId);
+    return found?.name || agentId;
+  } catch {
+    // listAgents reads the store off disk; never let a read failure cost the
+    // user the completion toast itself.
+    return agentId;
+  }
+}
+
+/**
+ * Toast for an agent run finishing. `outcome` is 'done' | 'failed'; a failure
+ * is phrased as "needs you" because that's the actionable state — the run
+ * stopped and wants a human, which is exactly what a toast should interrupt for.
+ *
+ * `silent: true` because the outcome already plays a sting through PLAY_SFX;
+ * a second sound from the Windows toaster would double up. The toast is the
+ * out-of-focus channel, the sting is the in-focus one.
+ */
+function notifyAgentOutcome(
+  status: AgentStatus,
+  outcome: 'done' | 'failed',
+): void {
+  if (!Notification.isSupported()) return;
+  // Already looking at the panel — the user sees the status line change.
+  if (panelHasFocus()) return;
+
+  const name = agentLabel(status.agentId);
+  const detail = (status.message || '').trim();
+  const failed = outcome === 'failed';
+  const title = failed ? `${name} needs you` : `${name} finished`;
+  const body = detail || (failed ? 'The run stopped before finishing.' : 'All done.');
+
+  try {
+    new Notification({ title, body, silent: true }).show();
+  } catch (err) {
+    // A toast failing must never take the agent loop down with it.
+    console.error('[Zapi] agent notification failed:', err);
+  }
+}
 /** Cursor-position poll interval — cleared on will-quit. */
 let cursorPollTimer: ReturnType<typeof setInterval> | null = null;
 /** Which overlay owns the mic right now, and in which mode. */
@@ -324,6 +378,14 @@ function sendToAll(channel: string, ...args: unknown[]): void {
 // ── App Lifecycle ──────────────────────────────────────────────────────
 
 app.whenReady().then(() => {
+  // Windows 10/11 resolve the toaster (Action Center + toast) against the
+  // AppUserModelID. Electron's default is `electron.app.<name>`, which the OS
+  // can't attribute to an installed shortcut — so Notification.show() silently
+  // no-ops and agent completions never appear. Bind it to the same appId
+  // electron-builder stamps into the exe so toasts survive a real install.
+  // Must run after ready and before any Notification is constructed.
+  app.setAppUserModelId('com.zapi.app');
+
   // A process that lost the single-instance race already called
   // app.quit() — it must not boot tray/overlays/shortcuts on the way out.
   if (!gotLock) return;
@@ -402,8 +464,10 @@ app.whenReady().then(() => {
         sendToOverlays(IPC.PLAY_SFX, 'agent-launch');
       } else if (status.phase === 'done') {
         sendToOverlays(IPC.PLAY_SFX, 'agent-done');
+        notifyAgentOutcome(status, 'done');
       } else if (status.phase === 'failed') {
         sendToOverlays(IPC.PLAY_SFX, 'agent-needs-you');
+        notifyAgentOutcome(status, 'failed');
       }
     },
     onAgentAction: (a) => {
@@ -800,6 +864,7 @@ app.whenReady().then(() => {
   ipcMain.on(IPC.SET_STREAM_WINDOW_BOUNDS, (_e, b: StreamWindowBounds) => companion.setStreamWindowBounds(b));
   ipcMain.on(IPC.SET_TTS_PROVIDER, (_e, p) => companion.setTtsProvider(p));
   ipcMain.on(IPC.SET_FISH_VOICE_ID, (_e, id) => companion.setFishVoiceId(id));
+  ipcMain.on(IPC.SET_FISH_TTS_MODEL, (_e, model) => companion.setFishTtsModel(model));
   // Mode switches
   ipcMain.on(IPC.SET_ALWAYS_ON, (_e, enabled: boolean) => companion.setAlwaysOn(enabled));
   ipcMain.on(IPC.SET_DICTATION, (_e, enabled: boolean) => companion.setDictation(enabled));

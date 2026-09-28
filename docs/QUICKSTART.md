@@ -61,20 +61,33 @@ You only need **Mind** to get started. The others are optional.
 | Provider | Where to get the key | Notes |
 |---|---|---|
 | **Anthropic** | console.anthropic.com → API Keys | Default. Claude Sonnet 4.6 |
-| **OpenAI** | platform.openai.com → API keys | GPT-5 default |
+| **OpenAI-compatible** | ClinePass, or platform.openai.com → API keys | Labeled **ClinePass · OpenAI-compatible** — any `/v1` endpoint |
 | **Local** | — | Ollama / LM Studio / vLLM, no key needed |
 
-On the **OpenAI** tab there's also a **base URL** box. Fill it in for ClinePass or
-any other OpenAI-compatible endpoint. Paste it however you like — a trailing
-slash or a full `…/v1/chat/completions` path is normalized for you, so you won't
-end up with `/v1/v1/`.
+The **OpenAI-compatible** tab is the one to use for ClinePass. Leave the **base URL** empty and it
+defaults to `api.openai.com`; for ClinePass paste your base (`https://api.cline.bot/api`) **and**
+your ClinePass key — the same key box, prefixed `sk-… or clinepass key`.
+
+Paste the base however you like. A trailing slash or a full `…/v1/chat/completions` path is
+normalized for you, so you won't end up with `/v1/v1/`.
+
+The **model picker is not hardcoded** for this provider — it fetches the model ids the endpoint
+actually advertises (`GET {base}/v1/models`) and refetches when you change the base or key. If the
+endpoint returns nothing, it falls back to a built-in list with a note.
+
+If your endpoint serves a model that isn't listed, **Custom model id (optional)** under the picker
+overrides it — type the id and it goes out verbatim.
 
 ### Ear — what it hears
 
 | Provider | Where to get the key |
 |---|---|
 | **Groq** (default) | console.groq.com → API Keys (`gsk_…`) |
-| **OpenAI** | same OpenAI key |
+
+**Groq Whisper is the only transcription provider for now.** ClinePass has no
+`/audio/transcriptions` endpoint, so the OpenAI-compatible route can't be used for dictation —
+point Ear at Groq. (The panel warns about exactly this if you leave transcription pointed at a
+custom base URL.)
 
 Picks Whisper Large v3 Turbo by default; v3 is also available.
 
@@ -85,8 +98,17 @@ Picks Whisper Large v3 Turbo by default; v3 is also available.
 | **Fish Audio** (default) | fish.audio dashboard |
 | **ElevenLabs** | elevenlabs.io → Profile → API Keys (`xi-…`) |
 
-Turn spoken replies off any time with the **Toggle speak replies** switch in the
-Voice tab.
+**Fish Audio's free tier needs the `s2.1-pro-free` model header, and that's the default.** The
+paid `s2.1-pro` sits behind credit, so a $0 dev account answers `402 insufficient` — which used to
+hit people on their very first spoken reply. Leave it on the free model unless you're paying.
+
+The voice you pick is a **reference_id** (Fish's internal model id), not the display name shown in
+their dashboard — the picker shows the name, sends the id.
+
+**If TTS fails for any reason — no key, bad key, no network — ZAPI falls back to your system
+voice** rather than going silent, and says so in the chat once per session.
+
+Turn spoken replies off any time with the **Toggle speak replies** switch in the Voice tab.
 
 ---
 
@@ -202,6 +224,20 @@ default one, so the request still does something instead of vanishing.
 The name is stripped before the model sees it: Scout receives *"check the build
 log"*, not *"scout: check the build log"*.
 
+Each agent also owns a **workspace** — a folder under the app's data dir holding an
+`AGENTS.md` (its name, role, and memory), plus `output/` and `tmp/`. Files it produces
+for you land in its `output/` folder, and that's the only place a new file belongs: the
+agent won't write into your Documents, Downloads, or Desktop, and won't move files it
+didn't create.
+
+**MEMO — agents remember things.** When a run teaches an agent something durable (how
+you like things done, how an app is laid out, a decision it already made, a thread
+still open), it writes a one-line `[MEMO:…]` note, which lands in its `AGENTS.md` as a
+dated bullet and is read back at the top of its next task — so the second time you ask,
+it doesn't ask again. Notes are capped to keep the file short, and secrets, tokens, and
+card numbers are never meant to go in there: keep it to preferences and layout, not
+credentials.
+
 ---
 
 ## 8. Routines — scheduled runs
@@ -228,11 +264,11 @@ When a task ends in something worth keeping — a spreadsheet, a note, a script 
 the agent hands it over as a **file** rather than pasting a wall of text into
 chat.
 
-Files land in your ZAPI data folder, one sub-folder per agent (`main` for the
-default one):
+Files land in that agent's workspace, one folder per agent (`main` for the default
+one):
 
 ```
-%APPDATA%\ZAPI Companion\artifacts\<agent-id>\
+%APPDATA%\ZAPI Companion\workspaces\<agent-id>\output\
 ```
 
 **Click** a file on the agent's card to open it; **right-click** it (or use the
@@ -241,13 +277,18 @@ small reveal button) to show it in Explorer.
 Two safety notes, because the filename comes from a language model:
 
 - Only the last path segment is kept — a name containing `../` cannot escape the
-  folder.
+  folder. A new file always goes to the agent's `output/`, never to your Documents,
+  Downloads, or Desktop.
 - A re-run of the same task writes `name-2.csv` rather than overwriting a file you
   may already have open.
 
+Files created before workspaces existed still live in the older
+`%APPDATA%\ZAPI Companion\artifacts\<agent-id>\` and are still readable from the agent's
+card — they're just no longer the destination for new ones.
+
 ZAPI's own data folder is `%APPDATA%\ZAPI Companion` (not `%APPDATA%\zapi`, which
 a different installed app also uses). Your settings, keys, chats, and counters live
-alongside the artifacts.
+alongside the agent workspaces.
 
 ---
 
@@ -326,7 +367,8 @@ back.
 | `%APPDATA%\ZAPI Companion\zapi-keys.json` | Your API keys (encrypted when the OS allows) |
 | `%APPDATA%\ZAPI Companion\zapi-chats.json` | Chat history, per agent |
 | `%APPDATA%\ZAPI Companion\zapi-usage.json` | Monthly counters |
-| `%APPDATA%\ZAPI Companion\artifacts\…` | Files agents produced |
+| `%APPDATA%\ZAPI Companion\workspaces\…` | Per-agent folders: `AGENTS.md` memory, `output\`, `tmp\` |
+| `%APPDATA%\ZAPI Companion\artifacts\…` | Files agents produced before workspaces existed (legacy) |
 
 ---
 

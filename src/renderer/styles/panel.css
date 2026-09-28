@@ -3,17 +3,22 @@
 @import url('https://fonts.googleapis.com/css2?family=Geist:wght@300..800&family=Geist+Mono:wght@400;500&display=swap');
 
 :root {
+  /* macOS dark Finder palette (docs/PLAN-glass-ui.md). Surfaces are
+     translucent tints over the window background so the OS acrylic
+     material shows through on Windows 11; on older builds they composite
+     over the opaque PANEL_FALLBACK_BG and read as near-identical darks. */
   --fl-bg:          #0f0f11;
   --fl-bg-soft:     #141418;
-  --fl-sidebar:     #141418;
-  --fl-surface:     #17171b;
-  --fl-surface-2:   #1c1c21;
-  --fl-border:      #24242a;
-  --fl-border-strong: #2f2f36;
-  --fl-ink:         #ffffff;
-  --fl-ink-soft:    #e8e8ec;
-  --fl-muted:       #8a8a92;
-  --fl-dim:         #5e5e66;
+  --fl-sidebar:     rgba(28, 28, 30, 0.55);
+  --fl-content:     rgba(20, 20, 22, 0.78);
+  --fl-surface:     rgba(255, 255, 255, 0.05);
+  --fl-surface-2:   rgba(255, 255, 255, 0.035);
+  --fl-border:      rgba(255, 255, 255, 0.07);
+  --fl-border-strong: rgba(255, 255, 255, 0.14);
+  --fl-ink:         #f5f5f7;
+  --fl-ink-soft:    rgba(245, 245, 247, 0.88);
+  --fl-muted:       rgba(235, 235, 245, 0.55);
+  --fl-dim:         rgba(235, 235, 245, 0.38);
   --fl-accent:      #ffffff;
   --fl-accent-dim:  #c9c9d0;
   --fl-warn:        #d4a64c;
@@ -23,17 +28,15 @@
   --fl-danger:      #d88282;
   --fl-danger-bg:   rgba(216, 130, 130, 0.1);
 
-  /* ── Glass material tokens ── the panel's heyclicky-style frost.
-     Tier A surfaces float over the body's ambient gradient so the
-     backdrop blur has light to pick up; tier B sits inside those cards
-     and just needs a lighter translucent fill. */
-  --fl-violet:          #7b4dff;
-  --fl-violet-soft:     rgba(123, 77, 255, 0.14);
-  --fl-violet-ring:     rgba(123, 77, 255, 0.35);
-  --fl-glass-bg:        rgba(24, 26, 34, 0.72);
-  --fl-glass-inset:     rgba(255, 255, 255, 0.05);
-  --fl-glass-chip:      rgba(255, 255, 255, 0.055);
-  --fl-glass-border:    rgba(255, 255, 255, 0.09);
+  /* ── Glass material tokens ── tier A cards float over the content
+     surface; tier B sits inside them as lighter translucent fills. */
+  --fl-mac-accent:          #0A84FF;
+  --fl-mac-accent-soft:     rgba(10, 132, 255, 0.14);
+  --fl-mac-accent-ring:     rgba(10, 132, 255, 0.35);
+  --fl-glass-bg:        rgba(255, 255, 255, 0.05);
+  --fl-glass-inset:     rgba(255, 255, 255, 0.04);
+  --fl-glass-chip:      rgba(255, 255, 255, 0.05);
+  --fl-glass-border:    rgba(255, 255, 255, 0.07);
   --fl-glass-shadow:    0 8px 32px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.06);
   --fl-glass-shadow-hi: 0 12px 40px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.09);
 }
@@ -41,15 +44,13 @@
 html, body, #root { width: 100%; height: 100%; overflow: hidden; }
 
 body {
-  font-family: 'Geist', system-ui, -apple-system, sans-serif;
+  /* SF-adjacent stack per the spec — no new font files. */
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, 'Geist', sans-serif;
   font-size: 13px;
   color: var(--fl-ink-soft);
-  /* Ambient glows — barely-there violet/blue washes that the glass
-     surfaces blur against. Flat bg would make backdrop-filter a no-op. */
-  background:
-    radial-gradient(1100px 720px at 8% -12%, rgba(123, 77, 255, 0.10), transparent 58%),
-    radial-gradient(960px 680px at 108% 112%, rgba(59, 130, 246, 0.07), transparent 60%),
-    var(--fl-bg);
+  /* Translucent panel bg — Win11 acrylic blurs the desktop through it;
+     on the opaque fallback path it composites over --fl-bg to ~#0e0e12. */
+  background: rgba(14, 14, 18, 0.55);
   letter-spacing: -0.005em;
   -webkit-font-smoothing: antialiased;
 }
@@ -68,9 +69,10 @@ body {
 .sidebar {
   width: 220px;
   flex-shrink: 0;
-  background: rgba(18, 18, 24, 0.55);
-  backdrop-filter: blur(24px) saturate(160%);
-  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  /* Finder sidebar glass: lighter translucency, heavy blur */
+  background: var(--fl-sidebar);
+  backdrop-filter: blur(40px) saturate(140%);
+  -webkit-backdrop-filter: blur(40px) saturate(140%);
   border-right: 1px solid var(--fl-glass-border);
   display: flex; flex-direction: column;
   padding: 20px 14px 14px;
@@ -96,24 +98,32 @@ body {
   margin-top: 6px;
 }
 .nav-label {
-  font-size: 10px; letter-spacing: .14em; text-transform: uppercase;
-  color: var(--fl-dim); font-weight: 700;
-  padding: 14px 10px 6px;
+  /* Finder section label: 11px muted caps */
+  font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--fl-dim); font-weight: 600;
+  padding: 14px 8px 6px;
 }
 .nav-item {
-  display: flex; align-items: center; gap: 10px;
+  display: flex; align-items: center; gap: 9px;
   background: transparent; border: none;
-  padding: 9px 10px; font: inherit; font-size: 13.5px; font-weight: 500;
+  padding: 6px 8px; margin: 1px 4px; /* 4px side inset per spec */
+  font: inherit; font-size: 13px; font-weight: 500;
   color: var(--fl-muted); cursor: pointer;
-  border-radius: 10px; text-align: left;
+  border-radius: 8px; text-align: left;
   transition: background .12s ease, color .12s ease;
 }
-.nav-item:hover { background: rgba(255,255,255,.04); color: var(--fl-ink); }
+.nav-item:hover { background: rgba(255,255,255,.05); color: var(--fl-ink); }
 .nav-item.on {
-  background: var(--fl-surface-2);
+  /* Finder selected row: rounded translucent pill */
+  background: rgba(255, 255, 255, 0.09);
   color: var(--fl-ink);
   font-weight: 600;
 }
+.nav-item .nav-ic {
+  width: 17px; flex-shrink: 0; text-align: center;
+  font-size: 13px; color: var(--fl-dim);
+}
+.nav-item.on .nav-ic { color: var(--fl-mac-accent); }
 .nav-item .dot {
   width: 6px; height: 6px; border-radius: 999px;
   background: var(--fl-ok); flex-shrink: 0;
@@ -142,6 +152,10 @@ body {
   flex: 1;
   overflow-y: auto;
   padding: 32px 40px 40px;
+  /* Content surface: darker + more opaque than the sidebar (Finder) */
+  background: var(--fl-content);
+  backdrop-filter: blur(30px) saturate(140%);
+  -webkit-backdrop-filter: blur(30px) saturate(140%);
 }
 
 .main-h1 {
@@ -1686,7 +1700,7 @@ button.provider-pick:hover {
 .modal-box {
   background: var(--fl-glass-bg);
   border: 1px solid var(--fl-glass-border);
-  border-radius: 16px;
+  border-radius: 12px;
   backdrop-filter: blur(24px) saturate(160%);
   -webkit-backdrop-filter: blur(24px) saturate(160%);
   box-shadow: var(--fl-glass-shadow);
@@ -1694,7 +1708,7 @@ button.provider-pick:hover {
 .home-hero {
   background: var(--fl-glass-bg);
   border-color: var(--fl-glass-border);
-  border-radius: 18px;
+  border-radius: 12px;
   backdrop-filter: blur(24px) saturate(160%);
   -webkit-backdrop-filter: blur(24px) saturate(160%);
   box-shadow: var(--fl-glass-shadow);
@@ -1704,7 +1718,7 @@ button.provider-pick:hover {
   backdrop-filter: blur(24px) saturate(160%);
   -webkit-backdrop-filter: blur(24px) saturate(160%);
   box-shadow: var(--fl-glass-shadow);
-  border-radius: 14px;
+  border-radius: 10px;
 }
 .perm-banner { border-color: rgba(212, 166, 76, 0.4); }
 
@@ -1725,10 +1739,10 @@ button.provider-pick:hover {
 .voice-list {
   background: var(--fl-glass-inset);
   border-color: var(--fl-glass-border);
-  border-radius: 14px;
+  border-radius: 10px;
   box-shadow: 0 4px 18px rgba(0, 0, 0, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
-.ptt-mode-seg { border-radius: 12px; }
+.ptt-mode-seg { border-radius: 10px; }
 
 /* ── Tier C: chips, pills, small controls ───────────────────────── */
 .btn,
@@ -1746,9 +1760,9 @@ button.provider-pick:hover {
   background: var(--fl-glass-chip);
   border-color: var(--fl-glass-border);
 }
-.pile-file { border-radius: 10px; }
+.pile-file { border-radius: 8px; }
 
-/* ── Inputs: translucent fills + violet focus ring ──────────────── */
+/* ── Inputs: translucent fills + accent focus ring ──────────────── */
 .text-input,
 .num-input,
 .chat-input,
@@ -1769,8 +1783,8 @@ button.provider-pick:hover {
 .modal-input:focus,
 .modal-textarea:focus,
 .modal-select:focus {
-  border-color: rgba(123, 77, 255, 0.55);
-  box-shadow: 0 0 0 3px var(--fl-violet-ring);
+  border-color: rgba(10, 132, 255, 0.55);
+  box-shadow: 0 0 0 3px var(--fl-mac-accent-ring);
 }
 
 /* ── Hover lifts: 180ms ease-out, −1px + deeper shadow ──────────── */
@@ -1825,51 +1839,48 @@ button.provider-pick:hover {
   border-color: var(--fl-glass-border);
 }
 
-/* ── Accent: #7b4dff violet on selected/active states ───────────── */
+/* ── Accent: #0A84FF macOS blue on selected/active states ───────── */
+/* (sidebar .nav-item.on stays the neutral rgba(255,255,255,.09) pill —
+    Finder selections are grey; the accent lives on the icon.) */
 .seg button.on {
-  background: var(--fl-violet);
-  border-color: var(--fl-violet);
+  background: var(--fl-mac-accent);
+  border-color: var(--fl-mac-accent);
   color: #fff;
 }
 .ptt-mode-seg .seg.on {
-  background: var(--fl-violet-soft);
+  background: var(--fl-mac-accent-soft);
   color: var(--fl-ink);
-  box-shadow: 0 0 0 1px rgba(123, 77, 255, 0.4);
-}
-.nav-item.on {
-  background: var(--fl-violet-soft);
-  color: var(--fl-ink);
-  box-shadow: inset 0 0 0 1px rgba(123, 77, 255, 0.22);
+  box-shadow: 0 0 0 1px rgba(10, 132, 255, 0.4);
 }
 .toggle.on,
 .toggle-pill.on {
-  background: var(--fl-violet);
+  background: var(--fl-mac-accent);
 }
 .toggle.on::after,
 .toggle-pill.on::after {
   background: #fff;
 }
 .model-item.on {
-  border-color: rgba(123, 77, 255, 0.6);
-  box-shadow: var(--fl-glass-shadow), 0 0 0 1px rgba(123, 77, 255, 0.25);
+  border-color: rgba(10, 132, 255, 0.6);
+  box-shadow: var(--fl-glass-shadow), 0 0 0 1px rgba(10, 132, 255, 0.25);
 }
-.model-item.on .model-radio { border-color: var(--fl-violet); }
-.model-item.on .model-radio::after { background: var(--fl-violet); }
+.model-item.on .model-radio { border-color: var(--fl-mac-accent); }
+.model-item.on .model-radio::after { background: var(--fl-mac-accent); }
 .voice-list .voice-item.on {
-  background: var(--fl-violet-soft);
-  border-color: rgba(123, 77, 255, 0.45);
+  background: var(--fl-mac-accent-soft);
+  border-color: rgba(10, 132, 255, 0.45);
 }
 .agent-filter-chip.on {
-  background: var(--fl-violet-soft);
-  border-color: rgba(123, 77, 255, 0.55);
+  background: var(--fl-mac-accent-soft);
+  border-color: rgba(10, 132, 255, 0.55);
   color: var(--fl-ink);
 }
 .unread-dot {
-  background: var(--fl-violet);
-  box-shadow: 0 0 6px rgba(123, 77, 255, 0.75);
+  background: var(--fl-mac-accent);
+  box-shadow: 0 0 6px rgba(10, 132, 255, 0.75);
 }
-.slider-track .fill { background: var(--fl-violet); }
-.modal-check input { accent-color: var(--fl-violet); }
+.slider-track .fill { background: var(--fl-mac-accent); }
+.modal-check input { accent-color: var(--fl-mac-accent); }
 
 /* ── Modal dim gets real frost ──────────────────────────────────── */
 .modal-overlay {
@@ -1947,3 +1958,31 @@ button.provider-pick:hover {
   font-size: 11.5px; color: var(--fl-dim);
   padding: 2px 2px 8px;
 }
+
+/* ── Traffic lights (macOS chrome) ──────────────────────────────── */
+/* Presentational until windows.ts flips the panel frameless and adds
+   hide/minimize/maximize IPC — see AUDIT.md. Glyphs fade in on group
+   hover like the real cluster; each button stays disabled meanwhile. */
+.traffic-lights {
+  display: flex; align-items: center; gap: 8px;
+  padding: 0 2px 14px;
+}
+.tl {
+  width: 12px; height: 12px; border-radius: 999px;
+  border: none; padding: 0;
+  display: grid; place-items: center;
+  cursor: pointer;
+  box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.25);
+}
+.tl-close { background: #ff5f57; }
+.tl-min { background: #febc2e; }
+.tl-max { background: #28c840; }
+.tl-glyph {
+  font-size: 9px; font-weight: 700; line-height: 1;
+  color: rgba(0, 0, 0, 0.55);
+  opacity: 0;
+  transition: opacity 0.1s ease;
+}
+.traffic-lights:hover .tl-glyph { opacity: 1; }
+.tl:disabled { cursor: default; }
+.tl:disabled:hover { filter: none; }

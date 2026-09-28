@@ -234,7 +234,15 @@ function describe(ref: Pick<ChanRef, 'alias' | 'key' | 'literal'>): string {
 
 // ── Extract call sites ──────────────────────────────────────────────────
 const preloadCalls = collectCalls(preloadSrc, 'ipcRenderer', ['send', 'invoke', 'on']);
-const mainHandlers = collectCalls(mainSrc, 'ipcMain', ['on', 'once', 'handle']);
+// Handlers live in index.ts, and also next to the window they act on:
+// windows.ts self-registers the panel's traffic-light channels from
+// createPanelWindow, because those two lines only make sense beside the
+// BrowserWindow they drive. Scanning both keeps this check honest about
+// "does this channel go somewhere" instead of "is it in index.ts".
+const mainHandlers = [
+  ...collectCalls(mainSrc, 'ipcMain', ['on', 'once', 'handle']),
+  ...collectCalls(windowsSrc, 'ipcMain', ['on', 'once', 'handle']),
+];
 // Channel sends: sendTo*(...) helpers, direct webContents.send, event replies.
 // The generic collector expects a method name after the receiver; send
 // helpers take the channel directly, so collect them with a dedicated pattern.

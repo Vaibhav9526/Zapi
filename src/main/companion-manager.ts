@@ -17,6 +17,7 @@ import {
   parseMemos,
   stripFileBlocks,
   extractAgentTask,
+  looksLikeCommand,
   TAG_STRIP_REGEX,
 } from './services/element-detector';
 import {
@@ -51,6 +52,7 @@ import type {
   Routine,
   CaptureMode,
   TtsProvider,
+  FishTtsModel,
   ConversationTurn,
   PttMode,
   TypeRequest,
@@ -385,6 +387,11 @@ export class CompanionManager {
 
   setFishVoiceId(id: string): void {
     settingsStore.set('fishVoiceId', id);
+    this.emitSettings();
+  }
+
+  setFishTtsModel(model: FishTtsModel): void {
+    settingsStore.set('fishTtsModel', model);
     this.emitSettings();
   }
 
@@ -1286,7 +1293,10 @@ export class CompanionManager {
       // listening is dead until restart. Contain it exactly like the
       // transcription-failure path above.
       try {
-        await this.processUserText(result.text);
+        // cameFromPtt: the keypress is the opt-in, so a bare imperative like
+        // "open youtube" acts on screen instead of becoming a chat turn. The
+        // always-on VAD path leaves this unset and keeps its wake-token gate.
+        await this.processUserText(result.text, { cameFromPtt: true });
       } catch (err) {
         console.error('[Zapi] turn processing failed:', err);
         this.forcedDictation = false;
@@ -1327,12 +1337,25 @@ export class CompanionManager {
    * branches (self-settings commands, dictation, the agent trigger)
    * keeps a routine like "email me the agent roster" from dictating the
    * word "agent" into their document or spawning a nested agent run.
+   *
+   * `cameFromPtt` widens the agent trigger: PTT accepts a bare imperative
+   * ("open youtube") with no "zapi agent" prefix, because the keypress is
+   * the opt-in. Always-on VAD does not — it keeps requiring a wake token.
    */
   private async processUserText(
     text: string,
-    opts?: { source?: 'voice' | 'routine' | 'suggestion' | 'typed'; agentId?: string },
+    opts?: {
+      source?: 'voice' | 'routine' | 'suggestion' | 'typed';
+      agentId?: string;
+      /** True only for the push-to-talk / push-to-dictate keypress paths. */
+      cameFromPtt?: boolean;
+    },
   ): Promise<void> {
     const fromVoice = (opts?.source ?? 'voice') === 'voice';
+    // The keypress is itself the opt-in, so a PTT turn may skip the
+    // "zapi agent" prefix and act on a bare imperative. Always-on VAD passes
+    // false (it has no keypress to justify taking the mouse on a word).
+    const cameFromPtt = opts?.cameFromPtt === true;
     const turnAgentId = opts?.agentId ?? AGENT_ID_MAIN;
     const myTurnId = this.turnId;
     const isCurrent = () => this.turnId === myTurnId;
@@ -1429,7 +1452,14 @@ export class CompanionManager {
     // Agent trigger: a transcript like "zapi agent, open notepad…"
     // diverts to the computer-control loop instead of a talk turn.
     if (fromVoice && settingsStore.get('agentEnabled')) {
-      const parsed = extractAgentTask(trimmed);
+      // Two ways in, same downstream path. The explicit "zapi agent" trigger
+      // works from any voice turn. A bare imperative works ONLY from PTT
+      // (cameFromPtt), where holding the key is the opt-in — always-on VAD
+      // keeps requiring a wake token, because hearing "play something" in a
+      // room conversation must never take the mouse.
+      const parsed =
+        extractAgentTask(trimmed) ??
+        (cameFromPtt && looksLikeCommand(trimmed) ? trimmed : null);
       if (parsed !== null) {
         if (!parsed.trim()) {
           // Trigger word with nothing after it — ask, don't guess.
@@ -2052,9 +2082,6 @@ export class CompanionManager {
             ? 'add your Fish Audio key in the panel to hear replies'
             : 'add your ElevenLabs key in the panel to hear replies',
         );
-        // The 'add your key' toast IS this path's once-cue — don't let
-        // speakViaSystemVoice stack a second generic one on top.
-        this.ttsFallbackAnnounced = true;
       }
       // Missing key used to mean dead silence — the OS voice reads the
       // reply instead until the key is added.

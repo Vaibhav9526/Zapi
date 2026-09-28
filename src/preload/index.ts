@@ -81,6 +81,13 @@ const api = {
   setTtsProvider: (p: TtsProvider): void => ipcRenderer.send(IPC.SET_TTS_PROVIDER, p),
   setFishVoiceId: (id: string): void => ipcRenderer.send(IPC.SET_FISH_VOICE_ID, id),
 
+  // ── Panel window chrome (traffic lights) ─────────────────────────────
+  // invoke (not send) so the maximize toggle can hand back the new
+  // state; a renderer that painted its own glyph from a stale guess would
+  // show the wrong one after the second click.
+  minimizePanel: (): Promise<void> => ipcRenderer.invoke(IPC.PANEL_MINIMIZE),
+  toggleMaximizePanel: (): Promise<boolean> => ipcRenderer.invoke(IPC.PANEL_MAXIMIZE),
+
   // ── Mode switches ──────────────────────────────────────────────────
   setAlwaysOn: (enabled: boolean): void => ipcRenderer.send(IPC.SET_ALWAYS_ON, enabled),
   setDictation: (enabled: boolean): void => ipcRenderer.send(IPC.SET_DICTATION, enabled),

@@ -71,6 +71,7 @@ interface Recorded {
 const calls: Recorded[] = [];
 const realFetch = globalThis.fetch;
 let nextStatus = 200;
+let nextBody = '{"error":{"message":"insufficient API credit"}}';
 /** Minimal audio/* response so the TTS client's content-type guard is happy. */
 const audioResponse = (): Response =>
   new Response(new Uint8Array([0x49, 0x44, 0x33, 0x00]), {
@@ -85,7 +86,7 @@ globalThis.fetch = (async (url: string, init: RequestInit = {}) => {
     body: typeof init.body === 'string' ? init.body : '',
   });
   if (nextStatus === 200) return audioResponse();
-  return new Response('{"error":{"message":"insufficient API credit"}}', {
+  return new Response(nextBody, {
     status: nextStatus,
     headers: { 'content-type': 'application/json' },
   });
@@ -283,6 +284,64 @@ const header = (name: string): string | undefined => {
     'load: the repair is written back without touching other settings',
     repaired,
   );
+}
+
+// ── f) the 400 'Reference not found' follow-up ──────────────────────
+{
+  const tts = new FishAudioTTS();
+  nextStatus = 400;
+  nextBody = '{"detail":"Reference not found"}';
+
+  // No voice configured: the panel's Voice tab is the fix, so say so.
+  settingsStore.set('fishVoiceId', '');
+  let msg = '';
+  try {
+    await tts.synthesize('hi', { voiceId: '' });
+  } catch (err) {
+    msg = err instanceof Error ? err.message : String(err);
+  }
+  check(
+    /paste a voice reference_id in the Voice tab/i.test(msg),
+    '400: an unconfigured voice gets the Voice-tab hint',
+    msg,
+  );
+  check(
+    /Reference not found/i.test(msg),
+    '400: the hint still quotes what the provider said',
+    msg,
+  );
+
+  // A voice IS configured: then the id itself is wrong or revoked, which
+  // the Voice tab hint would misdiagnose — stay generic.
+  settingsStore.set('fishVoiceId', 'stale-reference-id');
+  msg = '';
+  try {
+    await tts.synthesize('hi', { voiceId: '' });
+  } catch (err) {
+    msg = err instanceof Error ? err.message : String(err);
+  }
+  check(
+    !/Voice tab/i.test(msg) && /error 400/i.test(msg),
+    '400: with a voice set, the generic error is left alone',
+    msg,
+  );
+
+  // A different 400 must not borrow the voice hint.
+  nextBody = '{"error":{"message":"text is too long"}}';
+  settingsStore.set('fishVoiceId', '');
+  msg = '';
+  try {
+    await tts.synthesize('hi', { voiceId: '' });
+  } catch (err) {
+    msg = err instanceof Error ? err.message : String(err);
+  }
+  check(
+    !/Voice tab/i.test(msg) && /too long/i.test(msg),
+    '400: an unrelated 400 keeps its own message',
+    msg,
+  );
+  nextStatus = 200;
+  nextBody = '{"error":{"message":"insufficient API credit"}}';
 }
 
 globalThis.fetch = realFetch;

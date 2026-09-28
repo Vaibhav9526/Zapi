@@ -138,6 +138,8 @@ export type AgentActionKind =
   | 'drag'
   | 'move'
   | 'wait'
+  /** open → launch a URL (shell.openExternal), an app name, or a file path. */
+  | 'open'
   | 'done'
   | 'fail';
 
@@ -617,6 +619,11 @@ export const IPC = {
   SET_FISH_VOICE_ID: 'set-fish-voice-id',
   /** send FishTtsModel → persist + apply the Fish model header. */
   SET_FISH_TTS_MODEL: 'set-fish-tts-model',
+  // Panel window chrome — the macOS traffic lights, on Windows.
+  /** invoke → void. Minimize the panel window. */
+  PANEL_MINIMIZE: 'panel-minimize',
+  /** invoke → boolean. Toggle maximize; resolves the new state. */
+  PANEL_MAXIMIZE: 'panel-maximize',
   // Mode switches
   SET_ALWAYS_ON: 'set-always-on',
   SET_DICTATION: 'set-dictation',

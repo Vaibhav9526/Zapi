@@ -62,20 +62,51 @@ export function PanelApp() {
   const navItem = (
     id: Tab,
     label: string,
+    icon: IconName,
     opts: { needs?: boolean } = {},
   ) => (
     <button
       className={`nav-item ${tab === id ? 'on' : ''}`}
       onClick={() => setTab(id)}
     >
-      <span className={`dot ${opts.needs ? 'warn' : ''}`} />
+      <span className="nav-ic" aria-hidden>
+        <Icon name={icon} size={15} />
+      </span>
       <span className="label">{label}</span>
+      {opts.needs && <span className="dot warn" />}
     </button>
   );
 
   return (
     <div className="panel-shell">
       <aside className="sidebar">
+        {/* macOS traffic lights — min/max are wired; red stays disabled
+            because there's no hide/close IPC channel (quit lives in the
+            tray; see AUDIT.md). Hover glyphs mirror real macOS chrome. */}
+        <div className="traffic-lights" role="group" aria-label="Window controls">
+          <button className="tl tl-close" disabled title="quit from tray" aria-label="Close">
+            <span className="tl-glyph" aria-hidden>×</span>
+          </button>
+          <button
+            className="tl tl-min"
+            onClick={() => window.flicky.minimizePanel()}
+            title="Minimize"
+            aria-label="Minimize"
+          >
+            <span className="tl-glyph" aria-hidden>−</span>
+          </button>
+          <button
+            className="tl tl-max"
+            onClick={() => {
+              window.flicky.toggleMaximizePanel().then(setMaximized).catch(() => {});
+            }}
+            title={maximized ? 'Restore' : 'Maximize'}
+            aria-label={maximized ? 'Restore window' : 'Maximize window'}
+          >
+            {/* ⧉ = restore (overlapping squares), + = zoom */}
+            <span className="tl-glyph" aria-hidden>{maximized ? '⧉' : '+'}</span>
+          </button>
+        </div>
         <div className="sidebar-brand">
           <div className="sidebar-logo">
             <CursorIcon size={34} />
@@ -84,24 +115,25 @@ export function PanelApp() {
         </div>
 
         <nav className="nav">
-          {navItem('home', 'Home')}
-          {navItem('chats', 'Chats')}
+          {navItem('home', 'Home', 'home')}
+          {navItem('chats', 'Chats', 'chat')}
 
           <div className="nav-label">Providers</div>
-          {navItem('mind', 'Mind', { needs: mindNeeds })}
-          {navItem('voice', 'Voice', {
+          {navItem('mind', 'Mind', 'sparkle', { needs: mindNeeds })}
+          {navItem('voice', 'Voice', 'mic', {
             needs:
               settings.speakReplies &&
               !(settings.ttsProvider === 'fishaudio' ? apiKeyStatus.fishaudio : apiKeyStatus.elevenlabs),
           })}
-          {navItem('ear', 'Ear', { needs: !apiKeyStatus.groq })}
+          {navItem('ear', 'Ear', 'ear', { needs: !apiKeyStatus.groq })}
 
           <div className="nav-label">System</div>
-          {navItem('general', 'General')}
+          {navItem('general', 'General', 'sliders')}
         </nav>
 
         <div className="sidebar-foot">
           <button className="nav-item quit" onClick={() => window.flicky.quit()}>
+            <span className="nav-ic" aria-hidden>⏻</span>
             <span className="label">Quit</span>
           </button>
           <div className="sidebar-version">

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { FlickySettings, TtsProvider } from '../../../shared/types';
+import type { FlickySettings, FishTtsModel, TtsProvider } from '../../../shared/types';
 import { VOICE_PRESETS } from '../../../shared/types';
 import { ProviderKey } from './ProviderKey';
 import { Slider } from './Slider';
@@ -13,10 +13,31 @@ const TTS_PROVIDERS: Array<{ id: TtsProvider; label: string }> = [
   { id: 'elevenlabs', label: 'ElevenLabs' },
 ];
 
+/**
+ * Fish Audio model header, in the same order as the main-process
+ * FISH_TTS_MODELS list. The free tier leads because it is the one a $0
+ * dev account can actually call — `s2.1-pro` returns 402 "insufficient
+ * API credit" there, which reads as a broken key rather than a tier.
+ */
+const FISH_TTS_MODELS: FishTtsModel[] = ['s2.1-pro-free', 's2.1-pro', 's2-pro', 's1'];
+
+/** `Record` over the union, so a new model without a label fails the build. */
+const FISH_MODEL_LABELS: Record<FishTtsModel, string> = {
+  's2.1-pro-free': 'free · s2.1-pro-free',
+  's2.1-pro': 's2.1-pro',
+  's2-pro': 's2-pro',
+  s1: 's1',
+};
+
+const DEFAULT_FISH_MODEL: FishTtsModel = 's2.1-pro-free';
+
 export function VoiceTab({ settings }: VoiceTabProps) {
   const [voicePickerOpen, setVoicePickerOpen] = useState(false);
   const selectedVoice = VOICE_PRESETS.find((v) => v.id === settings.voiceId) ?? VOICE_PRESETS[0];
   const isFish = settings.ttsProvider === 'fishaudio';
+  // Main coerces the stored value on load, but default here too so a stale
+  // settings payload can never leave every button unselected.
+  const fishModel: FishTtsModel = settings.fishTtsModel ?? DEFAULT_FISH_MODEL;
 
   return (
     <>
@@ -67,6 +88,21 @@ export function VoiceTab({ settings }: VoiceTabProps) {
             autoComplete="off"
           />
           <p className="section-hint">paste the reference id, not the voice name</p>
+          <div className="label" style={{ marginTop: 16 }}>Fish model</div>
+          <div className="seg">
+            {FISH_TTS_MODELS.map((m) => (
+              <button
+                key={m}
+                className={fishModel === m ? 'on' : ''}
+                onClick={() => window.flicky.setFishTtsModel(m)}
+              >
+                {FISH_MODEL_LABELS[m]}
+              </button>
+            ))}
+          </div>
+          <p className="section-hint">
+            free is the $0 dev tier; the paid models need Fish API credit
+          </p>
         </div>
       ) : (
         <div className="section">

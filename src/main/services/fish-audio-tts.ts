@@ -87,6 +87,21 @@ export class FishAudioTTS {
       if (response.status === 429 || response.status >= 500) {
         throw new Error('fish audio is having trouble right now — try again in a moment');
       }
+      // A 400 "Reference not found" with no voice configured is the one
+      // 4xx we can actually explain: the request carried no
+      // reference_id at all, so the panel's Voice tab is the fix. With a
+      // voice set, the id is wrong or revoked and that is a different
+      // conversation — so the hint is conditional on the empty case.
+      const noVoice = !(options.voiceId || settingsStore.get('fishVoiceId'));
+      if (
+        response.status === 400 &&
+        noVoice &&
+        /reference not found/i.test(errText)
+      ) {
+        throw new Error(
+          `fish audio: no voice reference_id set — paste a voice reference_id in the Voice tab (provider said: ${errText.slice(0, 120)})`,
+        );
+      }
       throw new Error(`Fish Audio TTS error ${response.status}: ${errText}`);
     }
 

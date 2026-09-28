@@ -1,4 +1,5 @@
 import * as electron from 'electron';
+import { execFile } from 'node:child_process';
 import { acquireInputLease } from './input-lease';
 import { typeText } from './auto-typer';
 import type { AgentAction, ScreenCapture } from '../../shared/types';
@@ -219,6 +220,60 @@ const MODIFIER_KEYS = new Set<string>([
 /** Only these kinds move or click the real cursor — the onAction ripple keys off this. */
 const POINTER_KINDS = new Set<AgentAction['kind']>(['move', 'click', 'dclick', 'rclick', 'drag']);
 
+/**
+ * `open` is the one action that hands a model-authored string to a command
+ * interpreter, so the target is validated here and nowhere else. The rule is
+ * a whitelist by omission: accept a bare target — URL, app name, or absolute
+ * path — and refuse anything carrying a shell metacharacter:
+ *
+ *   & | ; < > % ` ' " $ and any newline
+ *
+ * Refusing every quote is deliberate. It removes the need to reason about how
+ * a path and its surrounding quotes compose, and it makes a path containing
+ * an apostrophe (a real hazard under cmd's quote stripping) fail loudly
+ * instead of executing something else. `%` covers %VAR% expansion, so the
+ * environment can never be spliced in. Spaces are fine — execFile quotes the
+ * argv element for us, which is why the helper below never builds a string.
+ */
+const SHELL_METACHARS = /[&|;<>%`'"$\r\n]/;
+
+/** `start` returns immediately; the cap only guards a wedged cmd.exe. */
+const OPEN_TIMEOUT_MS = 10_000;
+
+function validateOpenTarget(raw: string): string {
+  const target = raw.trim();
+  if (!target) throw new Error('empty open target');
+  if (SHELL_METACHARS.test(target)) {
+    throw new Error('open target rejected: shell metacharacter');
+  }
+  return target;
+}
+
+/**
+ * `cmd /d /s /c start "" "<target>"` — the Windows idiom for "open this with
+ * whatever handles it": a URL goes to the default browser, an app name
+ * resolves through PATH / App Paths, a file opens by association. The empty
+ * first argument is `start`'s window-title slot, not the target; `/d` skips
+ * AutoRun and `/s` is the quoting rule the idiom is written against.
+ */
+function launchTarget(target: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    execFile(
+      'cmd',
+      ['/d', '/s', '/c', 'start', '', target],
+      { windowsHide: true, timeout: OPEN_TIMEOUT_MS },
+      (err) => {
+        if (!err) {
+          resolve();
+          return;
+        }
+        const code = (err as { code?: number | string }).code;
+        reject(new Error(`start exited ${code ?? 'with an error'}`));
+      },
+    );
+  });
+}
+
 function describe(action: AgentAction): string {
   const at = action.x !== undefined ? ` ${Math.round(action.x)},${Math.round(action.y ?? 0)}` : '';
   switch (action.kind) {
@@ -229,6 +284,7 @@ function describe(action: AgentAction): string {
     case 'drag': return `drag${at} → ${Math.round(action.x2 ?? 0)},${Math.round(action.y2 ?? 0)}`;
     case 'type': return `type "${(action.text ?? '').slice(0, 30)}${(action.text ?? '').length > 30 ? '…' : ''}"`;
     case 'key': return `key ${action.text ?? ''}`;
+    case 'open': return `open ${(action.text ?? '').slice(0, 60)}${(action.text ?? '').length > 60 ? '…' : ''}`;
     case 'scroll': return `scroll ${action.direction ?? 'down'} ${action.amount ?? 3}`;
     case 'wait': return `wait ${action.amount ?? 0}ms`;
     case 'done': return `done${action.text ? `: ${action.text}` : ''}`;
@@ -265,8 +321,13 @@ export async function runAgentActions(
   // real input events in one step.
   const batch = actions.slice(0, MAX_ACTIONS_PER_BATCH);
   // done/fail just set result fields — a batch of only those never
-  // touches physical input, so it skips the lease entirely.
-  const needsLease = batch.some((a) => a.kind !== 'done' && a.kind !== 'fail');
+  // touches physical input, so it skips the lease entirely. `open` joins
+  // them: it launches a process and never synthesizes an input event, so
+  // holding the one real cursor/keyboard for it would needlessly block
+  // other agents. A batch mixing `open` with pointer/key actions still
+  // takes the lease for the whole batch (same rule as before).
+  const LEASE_FREE_KINDS = new Set<AgentAction['kind']>(['done', 'fail', 'open']);
+  const needsLease = batch.some((a) => !LEASE_FREE_KINDS.has(a.kind));
 
   // Physical input can't parallelize: nut-js owns the ONE real cursor
   // and keyboard, so batches serialize on the global input lease. Held
@@ -404,6 +465,22 @@ export async function runAgentActions(
                 await keyboard.releaseKey(k);
               } catch { /* best-effort release — never mask the real error */ }
             }
+          }
+          break;
+        }
+        case 'open': {
+          // Lease-free by construction (see LEASE_FREE_KINDS) and no
+          // overlay ripple: nothing was clicked, so POINTER_KINDS is right
+          // to exclude it. A rejected target is a normal per-action
+          // failure — logged into `executed`, the batch keeps going.
+          const raw = action.text ?? '';
+          try {
+            const target = validateOpenTarget(raw);
+            await launchTarget(target);
+            note = `${label} — launched`;
+          } catch (err) {
+            const why = err instanceof Error ? err.message : String(err);
+            note = `${label} — skipped: ${why}`;
           }
           break;
         }

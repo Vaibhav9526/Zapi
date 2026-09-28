@@ -1,8 +1,33 @@
-import { app, BrowserWindow, Display, screen } from 'electron';
+import { app, BrowserWindow, Display, ipcMain, screen, webContents } from 'electron';
+import os from 'os';
 import path from 'path';
-import { DISPLAY_INFO_ARG_PREFIX, type DisplayInfo, type StreamWindowBounds } from '../shared/types';
+import {
+  DISPLAY_INFO_ARG_PREFIX,
+  IPC,
+  type DisplayInfo,
+  type StreamWindowBounds,
+} from '../shared/types';
 
 const isDev = !app.isPackaged && process.env.VITE_DEV_SERVER === '1';
+
+/** Solid panel background for hosts that can't do a real system blur. */
+const PANEL_FALLBACK_BG = '#0f0f11';
+
+/**
+ * First Windows 11 build (21H2). `backgroundMaterial` — and the acrylic
+ * behind it — exists only from here up; asking for it on Windows 10 gives
+ * an opaque window with a broken transparent-region, which is worse than
+ * the plain solid background we fall back to.
+ */
+const WIN11_MIN_BUILD = 22000;
+
+export function supportsAcrylic(): boolean {
+  if (process.platform !== 'win32') return false;
+  // os.release() is "<major>.<minor>.<build>" on Windows; anything that
+  // doesn't parse is treated as "old" so we take the safe branch.
+  const build = Number.parseInt(os.release().split('.')[2] ?? '', 10);
+  return Number.isFinite(build) && build >= WIN11_MIN_BUILD;
+}
 
 function getPreloadPath(): string {
   return path.join(__dirname, '../preload/index.js');
@@ -64,6 +89,7 @@ export function scheduleDisplaySync(fn: () => void): void {
 
 /** The main Zapi app window (settings + status). */
 export function createPanelWindow(): BrowserWindow {
+  const acrylic = supportsAcrylic();
   const win = new BrowserWindow({
     width: 960,
     height: 640,
@@ -78,8 +104,17 @@ export function createPanelWindow(): BrowserWindow {
     maximizable: true,
     fullscreenable: false,
     skipTaskbar: false,
+    // Acrylic needs an opaque window: the material is composited by the
+    // OS behind a transparent-background surface, and a `transparent`
+    // window on Windows disables the blur and costs a lot of paint time.
+    // The panel's own CSS supplies the translucency (design-system.css).
     transparent: false,
-    backgroundColor: '#0f0f11',
+    // On Windows 11 the OS draws the blur; the panel sits on a
+    // semi-transparent surface and you see the desktop through it.
+    // Everywhere else: the solid fallback, unchanged from before.
+    ...(acrylic
+      ? { backgroundMaterial: 'acrylic' as const }
+      : { backgroundColor: PANEL_FALLBACK_BG }),
     title: 'ZAPI',
     // Windows/Linux otherwise show Electron's stock "File Edit View
     // Window Help" bar above the panel. Alt still reveals it.
@@ -96,10 +131,58 @@ export function createPanelWindow(): BrowserWindow {
     },
   });
 
+  panelWindowRef = win;
+  win.on('closed', () => {
+    if (panelWindowRef === win) panelWindowRef = null;
+  });
+  registerPanelWindowIpc();
+
   hardenWindow(win);
   loadPage(win, 'panel');
   return win;
 }
+
+// ── Panel window chrome (traffic lights) ───────────────────────────────
+// Self-registering from the window factory rather than from index.ts: the
+// handlers are two lines, they only make sense next to the window they
+// act on, and this keeps the wiring out of the app entry point. Both are
+// idempotent (createPanelWindow can run again after a crash-reload) and
+// both resolve the window from the sender's webContents, then check it
+// against the panel ref — an overlay or the stream window asking to be
+// minimized is ignored rather than obeyed.
+
+let panelWindowRef: BrowserWindow | null = null;
+let panelIpcRegistered = false;
+
+function registerPanelWindowIpc(): void {
+  if (panelIpcRegistered) return;
+  panelIpcRegistered = true;
+
+  ipcMain.handle(IPC.PANEL_MINIMIZE, (event) => {
+    if (panelFor(event.sender.id)) {
+      panelWindowRef?.minimize();
+    }
+  });
+
+  // Returns the new maximized state so the renderer can flip its traffic-
+  // light glyph without polling `isMaximized()`.
+  ipcMain.handle(IPC.PANEL_MAXIMIZE, (event) => {
+    const win = panelFor(event.sender.id);
+    if (!win) return false;
+    if (win.isMaximized()) win.unmaximize();
+    else win.maximize();
+    return win.isMaximized();
+  });
+}
+
+function panelFor(webContentsId: number): BrowserWindow | null {
+  const ref = panelWindowRef;
+  if (!ref || ref.isDestroyed()) return null;
+  const sender = webContents.fromId(webContentsId);
+  if (!sender) return null;
+  return BrowserWindow.fromWebContents(sender) === ref ? ref : null;
+}
+
 
 /**
  * Maps each overlay's webContents id back to the Display it covers, so

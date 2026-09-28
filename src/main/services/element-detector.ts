@@ -253,6 +253,13 @@ const ACT_TAG_REGEX = new RegExp(
     String.raw`\[ACT:drag:(?<dx1>${N}),(?<dy1>${N}):(?<dx2>${N}),(?<dy2>${N}):screen(?<dscr>\d+)\]`,
     String.raw`\[ACT:type:(?<typetext>${ESCAPED})\]`,
     String.raw`\[ACT:key:(?<keytext>[^\]]+)\]`,
+    // Like `key`, not like `type`: a target is a path or URL and must
+    // arrive verbatim, so there is no escape processing — a model writing
+    // C:\Program Files\app.exe means exactly that, and `type`'s escape
+    // convention would eat the backslashes. A literal `]` cannot appear in
+    // a Windows path (and is percent-encoded in a URL), so bounding the
+    // payload at `]` costs nothing real.
+    String.raw`\[ACT:open:(?<opentext>[^\]]*)\]`,
     String.raw`\[ACT:scroll:(?<scrolldir>up|down|left|right)(?::(?<scrollamt>\d+))?\]`,
     String.raw`\[ACT:wait:(?<waitms>\d+)\]`,
     String.raw`\[ACT:done(?::(?<donetext>${ESCAPED}))?\]`,
@@ -299,6 +306,11 @@ export function parseAgentActions(text: string, screenshots: ScreenCapture[]): A
       actions.push({ kind: 'type', text: unescape(g.typetext) });
     } else if (g.keytext !== undefined) {
       actions.push({ kind: 'key', text: g.keytext });
+    } else if (g.opentext !== undefined) {
+      // Verbatim, no unescape (see the regex note). An empty target still
+      // parses to an action: validation lives in the driver, which rejects
+      // it with a reason rather than the tag vanishing here.
+      actions.push({ kind: 'open', text: g.opentext });
     } else if (g.scrolldir !== undefined) {
       actions.push({
         kind: 'scroll',
@@ -494,4 +506,39 @@ export function extractAgentTask(transcript: string): string | null {
   if (m) return m[1].trim();
 
   return null;
+}
+
+/**
+ * Imperative leads that make a bare transcript an *action request* rather
+ * than a question. Used by the PTT path only: holding the key is already an
+ * explicit opt-in, so "open youtube" needs no "zapi agent" in front of it.
+ *
+ * Anchored at the start of the string and closed with `\b`, which is what
+ * keeps the two interesting near-misses out: "openness is nice" (no word
+ * boundary after `open`) and "playing around yesterday" (same, after
+ * `play`). A mid-sentence "can you open youtube" is also a non-match — the
+ * user asked a question, not for a click.
+ *
+ * Deliberately NOT used on the always-on VAD path: with no keypress, a bare
+ * "play something" from a room conversation would take the mouse.
+ */
+const IMPERATIVE_LEADS = [
+  'open', 'launch', 'start', 'run', 'play',
+  'go to', 'navigate to', 'switch to',
+  'search', 'find', 'type', 'click', 'press',
+  'close', 'quit', 'minimize', 'maximize',
+  'scroll', 'drag', 'select', 'delete', 'rename',
+  'copy', 'paste',
+  'volume up', 'volume down', 'mute', 'unmute',
+].join('|');
+const COMMAND_LEAD = new RegExp(`^(?:${IMPERATIVE_LEADS})\\b`, 'i');
+
+/**
+ * True when the transcript reads as an imperative the agent should carry out
+ * on screen. Returns a boolean, not the task: the caller already holds the
+ * (trimmed) transcript and passes it through unchanged, so there is no
+ * trigger wording to strip.
+ */
+export function looksLikeCommand(text: string): boolean {
+  return COMMAND_LEAD.test(text.trim());
 }

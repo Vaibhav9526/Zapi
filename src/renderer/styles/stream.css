@@ -8,14 +8,14 @@ html, body, #root {
   height: 100%;
   display: flex;
   flex-direction: column;
-  background: rgba(15, 15, 17, 0.78);
-  backdrop-filter: blur(22px) saturate(140%);
-  -webkit-backdrop-filter: blur(22px) saturate(140%);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(20, 20, 22, 0.78);
+  backdrop-filter: blur(32px) saturate(140%);
+  -webkit-backdrop-filter: blur(32px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, 0.07);
   border-radius: 14px;
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
-  color: #e7e7ea;
-  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: #f5f5f7;
+  font-family: -apple-system, "Segoe UI", system-ui, sans-serif;
   overflow: hidden;
   user-select: none;
 }
@@ -25,12 +25,12 @@ html, body, #root {
   align-items: center;
   gap: 8px;
   padding: 8px 12px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
   background: rgba(255, 255, 255, 0.03);
   -webkit-app-region: drag; /* frameless window drag */
   font-size: 12px;
   font-weight: 500;
-  color: rgba(231, 231, 234, 0.75);
+  color: rgba(235, 235, 245, 0.55);
 }
 
 .stream-head .title {
@@ -43,10 +43,10 @@ html, body, #root {
   flex-shrink: 0; /* three buttons + title — never squash the labels */
   background: transparent;
   border: 1px solid rgba(255, 255, 255, 0.08);
-  color: rgba(231, 231, 234, 0.7);
+  color: rgba(235, 235, 245, 0.55);
   font-size: 11px;
   padding: 3px 8px;
-  border-radius: 6px;
+  border-radius: 8px;
   cursor: pointer;
   transition: background 0.15s ease, color 0.15s ease;
 }
@@ -89,20 +89,20 @@ html, body, #root {
 }
 
 .stream-label {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.8px;
   text-transform: uppercase;
-  color: rgba(231, 231, 234, 0.5);
+  color: rgba(235, 235, 245, 0.38);
   margin-bottom: 3px;
 }
 
 .stream-user {
-  color: #7dd3fc;
+  color: #64d2ff; /* macOS dark cyan — readable text accent on glass */
 }
 
 .stream-ai {
-  color: #e7e7ea;
+  color: #f5f5f7;
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -135,10 +135,10 @@ html, body, #root {
 .scene-card {
   margin: 4px 0 14px;
   padding: 12px 14px 10px;
-  background: rgba(37, 99, 235, 0.10);
-  border: 1px solid rgba(125, 211, 252, 0.35);
+  background: rgba(10, 132, 255, 0.10);
+  border: 1px solid rgba(10, 132, 255, 0.35);
   border-radius: 12px;
-  box-shadow: 0 8px 22px rgba(29, 78, 216, 0.18);
+  box-shadow: 0 8px 22px rgba(10, 132, 255, 0.16);
 }
 .scene-head {
   display: flex;
@@ -179,8 +179,8 @@ html, body, #root {
   background: rgba(255, 255, 255, 0.04);
 }
 .scene-step.active {
-  background: rgba(59, 130, 246, 0.22);
-  box-shadow: inset 0 0 0 1px rgba(125, 211, 252, 0.55);
+  background: rgba(10, 132, 255, 0.20);
+  box-shadow: inset 0 0 0 1px rgba(10, 132, 255, 0.45);
   transform: translateX(2px);
 }
 .scene-num {
@@ -206,8 +206,8 @@ html, body, #root {
   color: #d6f0dd;
 }
 .scene-step.active .scene-num {
-  background: #2563eb;
-  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.3);
+  background: #0a84ff;
+  box-shadow: 0 0 0 4px rgba(10, 132, 255, 0.3);
 }
 .scene-label {
   font-size: 13px;
@@ -227,10 +227,10 @@ html, body, #root {
   align-items: center;
   gap: 8px;
   padding: 6px 12px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-  background: rgba(59, 130, 246, 0.14);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  background: rgba(10, 132, 255, 0.13);
   font-size: 11px;
-  color: rgba(231, 231, 234, 0.85);
+  color: rgba(235, 235, 245, 0.8);
 }
 .agent-status-text {
   flex: 1;
@@ -282,7 +282,7 @@ html, body, #root {
 .agent-feed-glyph {
   width: 14px;
   text-align: center;
-  color: #7dd3fc;
+  color: #64d2ff;
   flex-shrink: 0;
 }
 /* Which agent produced the row. Echoes carry no agentId, so this is the
@@ -373,7 +373,7 @@ html, body, #root {
   font-weight: 700;
   letter-spacing: 0.7px;
   text-transform: uppercase;
-  color: rgba(231, 231, 234, 0.45);
+  color: rgba(235, 235, 245, 0.38);
 }
 .suggest-cards {
   flex: 1;
@@ -425,10 +425,10 @@ html, body, #root {
 }
 .suggest-run {
   flex-shrink: 0;
-  background: rgba(125, 211, 252, 0.14);
-  border: 1px solid rgba(125, 211, 252, 0.3);
-  border-radius: 5px;
-  color: #7dd3fc;
+  background: rgba(10, 132, 255, 0.16);
+  border: 1px solid rgba(10, 132, 255, 0.4);
+  border-radius: 6px;
+  color: #64d2ff;
   font-size: 10px;
   font-weight: 600;
   padding: 1px 7px;
@@ -436,7 +436,7 @@ html, body, #root {
   transition: background 0.15s ease, color 0.15s ease;
 }
 .suggest-run:hover {
-  background: rgba(125, 211, 252, 0.3);
+  background: rgba(10, 132, 255, 0.32);
   color: #fff;
 }
 .suggest-x,
@@ -481,7 +481,7 @@ html, body, #root {
   border-color: rgba(125, 211, 252, 0.4);
 }
 .artifact-icon {
-  color: #7dd3fc;
+  color: #64d2ff;
   font-size: 11px;
   flex-shrink: 0;
 }
@@ -492,19 +492,19 @@ html, body, #root {
 }
 
 /* ══════════════════════════════════════════════════════════════════
-   Glass pass — deepen the rail's frost and give pinned strips, agent
-   chips, and suggestion cards the same translucent material as the
-   panel (rgba glass + blur + soft layered shadow). Accent stays the
-   rail's cyan for semantic text; the run affordance picks up the
-   product violet (#7b4dff).
+   Glass pass (v2 macOS Finder tokens) — content surface rides
+   rgba(20,20,22,.78) over heavy vibrancy blur; hairlines .07, selected
+   rows .09, accent #0A84FF (text accents use the brighter macOS cyan
+   #64D2FF for contrast on dark glass). Semantic tints stay: red errors,
+   green done, per-agent accents on the overlay.
    ══════════════════════════════════════════════════════════════════ */
 
 .stream-root {
-  background: rgba(16, 18, 26, 0.6);
-  backdrop-filter: blur(28px) saturate(170%);
-  -webkit-backdrop-filter: blur(28px) saturate(170%);
-  border: 1px solid rgba(255, 255, 255, 0.09);
-  border-radius: 16px;
+  background: rgba(20, 20, 22, 0.78);
+  backdrop-filter: blur(40px) saturate(140%);
+  -webkit-backdrop-filter: blur(40px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 14px;
   box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.07);
 }
 
@@ -517,7 +517,7 @@ html, body, #root {
   border-color: rgba(255, 255, 255, 0.07);
 }
 .agent-status {
-  background: rgba(59, 130, 246, 0.12);
+  background: rgba(10, 132, 255, 0.12);
   backdrop-filter: blur(14px) saturate(150%);
   -webkit-backdrop-filter: blur(14px) saturate(150%);
 }
@@ -529,28 +529,28 @@ html, body, #root {
 
 /* ── Scene cue card: keep the blue tint, gain the glass shadow ──── */
 .scene-card {
-  background: rgba(37, 99, 235, 0.12);
-  border-color: rgba(125, 211, 252, 0.4);
+  background: rgba(10, 132, 255, 0.12);
+  border-color: rgba(10, 132, 255, 0.38);
   backdrop-filter: blur(16px) saturate(150%);
   -webkit-backdrop-filter: blur(16px) saturate(150%);
-  box-shadow: 0 8px 24px rgba(29, 78, 216, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  box-shadow: 0 8px 24px rgba(10, 132, 255, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 .scene-step.done { background: rgba(255, 255, 255, 0.045); }
 
-/* ── Agent rows → glass chips ───────────────────────────────────── */
+/* ── Agent rows → glass pills ───────────────────────────────────── */
 .agent-feed-agent,
 .suggest-agent,
 .stream-typechip {
   background: rgba(255, 255, 255, 0.05);
   border-color: rgba(255, 255, 255, 0.11);
+  border-radius: 999px;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
-.stream-typechip { border-radius: 999px; }
 
 /* ── Suggestions strip → frosted cards + lift ───────────────────── */
 .suggest-card {
-  background: rgba(24, 26, 34, 0.55);
-  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.09);
   border-radius: 10px;
   backdrop-filter: blur(16px) saturate(150%);
   -webkit-backdrop-filter: blur(16px) saturate(150%);
@@ -563,26 +563,27 @@ html, body, #root {
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 .suggest-run {
-  background: rgba(123, 77, 255, 0.2);
-  border-color: rgba(123, 77, 255, 0.45);
-  color: #d3c2ff;
+  background: rgba(10, 132, 255, 0.18);
+  border-color: rgba(10, 132, 255, 0.45);
+  color: #9fd0ff;
 }
 .suggest-run:hover {
-  background: rgba(123, 77, 255, 0.38);
+  background: rgba(10, 132, 255, 0.36);
   color: #fff;
 }
 
 /* ── Artifact chips → glass chips with a lift ───────────────────── */
 .artifact-chip {
   background: rgba(255, 255, 255, 0.055);
-  border-color: rgba(255, 255, 255, 0.11);
+  border-color: rgba(255, 255, 255, 0.09);
+  border-radius: 8px;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
   transition: background 0.15s ease, border-color 0.15s ease,
     transform 0.18s ease-out, box-shadow 0.18s ease-out;
 }
 .artifact-chip:hover {
   transform: translateY(-1px);
-  background: rgba(255, 255, 255, 0.1);
-  border-color: rgba(125, 211, 252, 0.45);
+  background: rgba(255, 255, 255, 0.09);
+  border-color: rgba(10, 132, 255, 0.45);
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
 }
