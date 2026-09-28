@@ -9,6 +9,8 @@ import { GeneralTab } from './panel/GeneralTab';
 import { PermissionsBanner } from './panel/PermissionsBanner';
 import { Onboarding } from './panel/Onboarding';
 import { CursorIcon } from './CursorIcon';
+import { Icon } from './icons';
+import type { IconName } from './icons';
 
 type Tab = 'home' | 'chats' | 'mind' | 'voice' | 'ear' | 'general';
 
@@ -21,6 +23,9 @@ export function PanelApp() {
   const [lastError, setLastError] = useState<string | null>(null);
   // Lifted so HomeTab's agent cards can deep-link into a filtered Chats view.
   const [chatAgentFilter, setChatAgentFilter] = useState<string | null>(null);
+  // Green traffic light flips between + (zoom) and ⧉ (restore) — kept in
+  // sync by the boolean toggleMaximizePanel returns.
+  const [maximized, setMaximized] = useState(false);
 
   useEffect(() => {
     window.flicky.getSettings().then(setSettings);
@@ -89,7 +94,7 @@ export function PanelApp() {
           </button>
           <button
             className="tl tl-min"
-            onClick={() => window.flicky.minimizePanel()}
+            onClick={() => void window.flicky.minimizePanel()}
             title="Minimize"
             aria-label="Minimize"
           >

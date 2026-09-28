@@ -190,6 +190,13 @@ export interface StoredSettings {
   dictationEnabled: boolean;
   dictationShortcut: string;
   agentEnabled: boolean;
+  /**
+   * Dedicated agent hotkey. Held for a turn, the transcript is routed
+   * straight to the agent loop — no "zapi agent" prefix and no
+   * looksLikeCommand guess, because the keypress IS the opt-in. Shares
+   * `pttMode` hold/toggle semantics with the other two hotkeys.
+   */
+  agentPttShortcut: string;
   agentMaxSteps: number;
   customOpenAIModel: string;
   /** '' = api.openai.com; set to any OpenAI-compatible endpoint (clinepass, proxy). */
@@ -244,6 +251,10 @@ const DEFAULTS: StoredSettings = {
   alwaysOnEnabled: false,
   dictationEnabled: false,
   dictationShortcut: 'Ctrl+Alt+D',
+  // Distinct from Ctrl+Alt+X / Ctrl+Alt+D by the Shift: two bare Ctrl+Alt
+  // chords in the same corner of the keyboard is a recipe for a misfire
+  // that hands the mouse to the agent.
+  agentPttShortcut: 'Ctrl+Shift+A',
   agentEnabled: true,
   agentMaxSteps: 15,
   customOpenAIModel: '',

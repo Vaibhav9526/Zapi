@@ -420,6 +420,10 @@ export interface FlickySettings {
   isClickyCursorEnabled: boolean;
   launchAtLogin: boolean;
   pushToTalkShortcut: string;
+  /** Dedicated global hotkey for computer-control turns — its utterance
+   * is forced to the agent loop with no wake word or verb detection.
+   * Holding this key IS the takeover consent. */
+  agentPttShortcut: string;
   /**
    * How the push-to-talk shortcut behaves:
    *   'hold'   — record while the key is held, send on release
@@ -519,6 +523,7 @@ export const DEFAULT_SETTINGS: FlickySettings = {
   isClickyCursorEnabled: true,
   launchAtLogin: false,
   pushToTalkShortcut: 'Ctrl+Alt+X',
+  agentPttShortcut: 'Ctrl+Shift+A',
   pttMode: 'hold',
   autoTypeEnabled: false,
   streamVisibility: 'off',
@@ -610,6 +615,7 @@ export const IPC = {
   TOGGLE_CURSOR: 'toggle-cursor',
   SET_LAUNCH_AT_LOGIN: 'set-launch-at-login',
   SET_PUSH_TO_TALK_SHORTCUT: 'set-push-to-talk-shortcut',
+  SET_AGENT_PTT_SHORTCUT: 'set-agent-ptt-shortcut',
   SET_PTT_MODE: 'set-ptt-mode',
   SET_AUTO_TYPE_ENABLED: 'set-auto-type-enabled',
   SET_STREAM_VISIBILITY: 'set-stream-visibility',

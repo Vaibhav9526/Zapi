@@ -159,6 +159,9 @@ const api = {
 
   setFishTtsModel: (model: FishTtsModel): void =>
     ipcRenderer.send(IPC.SET_FISH_TTS_MODEL, model),
+  /** Update the dedicated agent-control global hotkey. */
+  setAgentPttShortcut: (shortcut: string): void =>
+    ipcRenderer.send(IPC.SET_AGENT_PTT_SHORTCUT, shortcut),
 
   toggleCursor: (enabled: boolean): void => ipcRenderer.send(IPC.TOGGLE_CURSOR, enabled),
   setLaunchAtLogin: (enabled: boolean): void => ipcRenderer.send(IPC.SET_LAUNCH_AT_LOGIN, enabled),

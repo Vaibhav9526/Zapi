@@ -98,9 +98,10 @@ Picks Whisper Large v3 Turbo by default; v3 is also available.
 | **Fish Audio** (default) | fish.audio dashboard |
 | **ElevenLabs** | elevenlabs.io → Profile → API Keys (`xi-…`) |
 
-**Fish Audio's free tier needs the `s2.1-pro-free` model header, and that's the default.** The
-paid `s2.1-pro` sits behind credit, so a $0 dev account answers `402 insufficient` — which used to
-hit people on their very first spoken reply. Leave it on the free model unless you're paying.
+**Fish Audio's free tier is `s2.1-pro-free`, and that's the default.** The paid
+`s2.1-pro` needs a voice `reference_id` *and* API credit, so a $0 dev account answers
+`402 insufficient` — which used to hit people on their very first spoken reply. Leave
+it on the free model unless you're paying.
 
 The voice you pick is a **reference_id** (Fish's internal model id), not the display name shown in
 their dashboard — the picker shows the name, sends the id.

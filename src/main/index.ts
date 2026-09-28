@@ -793,20 +793,114 @@ app.whenReady().then(() => {
   registerDictationShortcut(companion.getDictationShortcut());
   companion.setDictationShortcutReRegister(registerDictationShortcut);
 
+  // ── Agent hotkey (third binding, routes straight to the agent loop) ──
+  // Same capture mechanics as the other two — toggle/hold honoring pttMode,
+  // forced to 'toggle' on macOS — but the transcript it produces is forced
+  // into the agent loop by companion's one-shot flag, so the user never has
+  // to say "zapi agent" to take the wheel.
+  // No pttTestMode gate either: that flag belongs to setup's PTT check, and
+  // arming it here would let the setup wizard swallow a real agent request.
+  let agentDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  let agentActive = false;
+  /** Number of accelerator fires seen during the current hold. */
+  let agentFireCount = 0;
+  let currentAgentShortcut = '';
+
+  const agentHandler = () => {
+    const mode = isMac ? 'toggle' : companion.getSettings().pttMode;
+
+    if (mode === 'toggle') {
+      if (!agentActive) {
+        agentActive = true;
+        // Mirror the PTT reconcile: a failed start flips isRecording back
+        // to false, so sync the local toggle to companion state.
+        void companion.startAgentPushToTalk()
+          .then(() => {
+            agentActive = companion.recording;
+          })
+          .catch((err) => console.error('[Zapi] startAgentPushToTalk failed:', err));
+      } else {
+        agentActive = false;
+        void companion.stopAgentPushToTalk()
+          .then(() => {
+            agentActive = companion.recording;
+          })
+          .catch((err) => console.error('[Zapi] stopAgentPushToTalk failed:', err));
+      }
+      return;
+    }
+
+    // 'hold' mode (Windows/Linux): rely on key-repeat, debounce on silence.
+    if (agentDebounceTimer) {
+      clearTimeout(agentDebounceTimer);
+      agentDebounceTimer = null;
+    }
+    if (!agentActive) {
+      agentActive = true;
+      agentFireCount = 0;
+      void companion.startAgentPushToTalk().catch((err) => console.error('[Zapi] startAgentPushToTalk failed:', err));
+    }
+    agentFireCount += 1;
+    const grace = agentFireCount === 1 ? PTT_HOLD_INITIAL_GRACE_MS : PTT_HOLD_REPEAT_GRACE_MS;
+    agentDebounceTimer = setTimeout(() => {
+      agentActive = false;
+      agentFireCount = 0;
+      agentDebounceTimer = null;
+      void companion.stopAgentPushToTalk().catch((err) => console.error('[Zapi] stopAgentPushToTalk failed:', err));
+    }, grace);
+  };
+
+  function registerAgentShortcut(accelerator: string): boolean {
+    const previous = currentAgentShortcut;
+    try {
+      if (previous) globalShortcut.unregister(previous);
+      const ok = globalShortcut.register(accelerator, agentHandler);
+      if (ok) {
+        currentAgentShortcut = accelerator;
+        return true;
+      }
+    } catch (err) {
+      console.error('[Zapi] agent shortcut register failed:', err);
+    }
+    sendToPanel(
+      IPC.AI_ERROR,
+      `Couldn't register agent shortcut "${accelerator}" — it may be taken by another app. Try a different combo.`,
+    );
+    // Failure path mirrors the other two: restore the last-known-good
+    // binding so the user isn't left with no agent hotkey at all.
+    if (previous) {
+      try {
+        globalShortcut.register(previous, agentHandler);
+        currentAgentShortcut = previous;
+      } catch (err) {
+        console.error('[Zapi] agent shortcut rollback failed:', err);
+        currentAgentShortcut = '';
+      }
+    }
+    return false;
+  }
+
+  registerAgentShortcut(companion.getAgentPttShortcut());
+  companion.setAgentShortcutReRegister(registerAgentShortcut);
+
   function suspendPttShortcut(): void {
     if (currentShortcut) {
       try { globalShortcut.unregister(currentShortcut); } catch { /* no-op */ }
     }
-    // Shortcut capture must silence both hotkeys — otherwise the
-    // dictation binding fires mid-capture while recording the new PTT key.
+    // Shortcut capture must silence all three hotkeys — otherwise a
+    // binding fires mid-capture while the user is recording a new combo.
     if (currentDictationShortcut) {
       try { globalShortcut.unregister(currentDictationShortcut); } catch { /* no-op */ }
+    }
+    if (currentAgentShortcut) {
+      try { globalShortcut.unregister(currentAgentShortcut); } catch { /* no-op */ }
     }
   }
   function resumePttShortcut(): void {
     const desired = companion.getSettings().pushToTalkShortcut;
     registerPttShortcut(desired);
     registerDictationShortcut(companion.getDictationShortcut());
+    registerAgentShortcut(companion.getAgentPttShortcut());
   }
   ipcMain.on(IPC.SUSPEND_PUSH_TO_TALK_SHORTCUT, () => suspendPttShortcut());
   ipcMain.on(IPC.RESUME_PUSH_TO_TALK_SHORTCUT, () => resumePttShortcut());
@@ -858,6 +952,7 @@ app.whenReady().then(() => {
   ipcMain.on(IPC.TOGGLE_CURSOR, (_e, enabled) => companion.toggleCursor(enabled));
   ipcMain.on(IPC.SET_LAUNCH_AT_LOGIN, (_e, enabled) => companion.setLaunchAtLogin(enabled));
   ipcMain.on(IPC.SET_PUSH_TO_TALK_SHORTCUT, (_e, accel: string) => companion.setPushToTalkShortcut(accel));
+  ipcMain.on(IPC.SET_AGENT_PTT_SHORTCUT, (_e, accel: string) => companion.setAgentPttShortcut(accel));
   ipcMain.on(IPC.SET_PTT_MODE, (_e, mode) => companion.setPttMode(mode));
   ipcMain.on(IPC.SET_AUTO_TYPE_ENABLED, (_e, enabled: boolean) => companion.setAutoTypeEnabled(enabled));
   ipcMain.on(IPC.SET_STREAM_VISIBILITY, (_e, v: StreamVisibility) => companion.setStreamVisibility(v));

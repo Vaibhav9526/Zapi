@@ -190,12 +190,23 @@ export class CompanionManager {
    */
   private forcedDictation = false;
   /**
+   * One-shot override set by the dedicated agent hotkey: the turn recorded
+   * under it is routed straight to the agent loop in processUserText —
+   * no "zapi agent" prefix, no looksLikeCommand guess, because the
+   * keypress itself is the opt-in. Same consume-at-turn-entry discipline
+   * as `forcedDictation` so a failed start can't arm the next turn.
+   */
+  private forcedAgent = false;
+  /**
    * Push-to-dictate accelerator. Mirrors `pushToTalkShortcut`: hydrated
    * from settings-store at construction, persisted on change, re-registered
    * with the OS via `reRegisterDictationShortcut`.
    */
   private dictationShortcut: string;
   private reRegisterDictationShortcut: ((accel: string) => boolean) | null = null;
+  /** Agent accelerator — same three-part contract as the other two hotkeys. */
+  private agentPttShortcut: string;
+  private reRegisterAgentShortcut: ((accel: string) => boolean) | null = null;
   /**
    * Monotonic turn counter. A new PTT press (or VAD utterance) bumps
    * this; any still-running LLM callbacks from the previous turn check
@@ -243,6 +254,7 @@ export class CompanionManager {
     this.context = new ContextManager();
 
     this.dictationShortcut = settingsStore.get('dictationShortcut');
+    this.agentPttShortcut = settingsStore.get('agentPttShortcut');
     this.orchestrator = new AgentOrchestrator((agentId) => this.buildAgentDeps(agentId));
     this.routines = new RoutineScheduler({
       listRoutines: () => settingsStore.listRoutines(),
@@ -609,6 +621,39 @@ export class CompanionManager {
     settingsStore.set('dictationShortcut', shortcut);
   }
 
+  setAgentShortcutReRegister(fn: (accel: string) => boolean): void {
+    this.reRegisterAgentShortcut = fn;
+  }
+
+  getAgentPttShortcut(): string {
+    return this.agentPttShortcut;
+  }
+
+  /**
+   * Same three-step contract as the dictation accelerator: persist only
+   * after the OS actually accepts the binding, and roll back to the
+   * last-known-good one when it doesn't, so a rejected combo never
+   * leaves the user with no agent hotkey at all.
+   */
+  setAgentPttShortcut(accelerator: string): void {
+    const previous = this.agentPttShortcut;
+    if (!this.reRegisterAgentShortcut) {
+      this.agentPttShortcut = accelerator;
+      settingsStore.set('agentPttShortcut', accelerator);
+      this.emitSettings();
+      return;
+    }
+    const ok = this.reRegisterAgentShortcut(accelerator);
+    if (ok) {
+      this.agentPttShortcut = accelerator;
+      settingsStore.set('agentPttShortcut', accelerator);
+    } else {
+      console.warn('[Zapi] Failed to register agent shortcut', accelerator, '— reverting to', previous);
+      this.reRegisterAgentShortcut(previous);
+    }
+    this.emitSettings();
+  }
+
   setPttMode(mode: PttMode): void {
     settingsStore.set('pttMode', mode);
     this.emitSettings();
@@ -868,9 +913,23 @@ export class CompanionManager {
     await this.startRecordingWithMode(true);
   }
 
-  private async startRecordingWithMode(forcedDictation: boolean): Promise<void> {
+  /**
+   * Agent-hotkey entry: same recording path, but arms the one-shot
+   * `forcedAgent` flag so the resulting turn goes to the agent loop
+   * even when `agentEnabled`'s trigger grammar wouldn't have caught a
+   * bare imperative like "open youtube".
+   */
+  async startAgentPushToTalk(): Promise<void> {
+    await this.startRecordingWithMode(false, true);
+  }
+
+  private async startRecordingWithMode(
+    forcedDictation: boolean,
+    forcedAgent = false,
+  ): Promise<void> {
     if (this.isRecording || this.pendingStart) return;
     if (forcedDictation) this.forcedDictation = true;
+    if (forcedAgent) this.forcedAgent = true;
     const p = this.startRecording();
     this.pendingStart = p;
     try {
@@ -897,6 +956,15 @@ export class CompanionManager {
    * consumed downstream in processUserText.
    */
   async stopDictationPushToTalk(): Promise<void> {
+    await this.stopPushToTalk();
+  }
+
+  /**
+   * Agent-hotkey exit: shares the stop path (and its pending-start race
+   * guard) with stopPushToTalk — the forced-agent flag is consumed
+   * downstream in processUserText.
+   */
+  async stopAgentPushToTalk(): Promise<void> {
     await this.stopPushToTalk();
   }
 
@@ -1112,10 +1180,17 @@ export class CompanionManager {
     // Hold the finished scene on screen for a beat after the last cue
     // lands, then clear both the beat index and the scene itself.
     const endTimer = setTimeout(() => {
-      if (!isCurrent()) return;
+      // The clears must NOT be gated on isCurrent: a turn superseded
+      // mid-scene still owns the overlay's cursor state, so skipping the
+      // null-emits left the overlay painting the last point cue (and its
+      // stale bubble) forever. The cue beats above stay gated — a dead
+      // turn must not draw — and a newer scene's startScene cancels this
+      // timer outright, so these emits can only ever clear a scene that
+      // is still the live one. Only the voice-state restore remains
+      // gated.
       this.callbacks.onSceneCue(null);
       this.callbacks.onScene(null);
-      onDone?.();
+      if (isCurrent()) onDone?.();
     }, cursor + 4000);
     this.sceneTimers.push(endTimer);
   }
@@ -1341,6 +1416,11 @@ export class CompanionManager {
    * `cameFromPtt` widens the agent trigger: PTT accepts a bare imperative
    * ("open youtube") with no "zapi agent" prefix, because the keypress is
    * the opt-in. Always-on VAD does not — it keeps requiring a wake token.
+   *
+   * `forceAgent` is the dedicated agent hotkey, one step further: it skips
+   * the looksLikeCommand guess too, so ANY transcript from that key routes
+   * to the agent loop. The trigger is still parsed first, so "zapi agent
+   * scout: …" keeps its named-target routing.
    */
   private async processUserText(
     text: string,
@@ -1349,6 +1429,8 @@ export class CompanionManager {
       agentId?: string;
       /** True only for the push-to-talk / push-to-dictate keypress paths. */
       cameFromPtt?: boolean;
+      /** Set by the dedicated agent hotkey — route to the agent loop outright. */
+      forceAgent?: boolean;
     },
   ): Promise<void> {
     const fromVoice = (opts?.source ?? 'voice') === 'voice';
@@ -1372,6 +1454,12 @@ export class CompanionManager {
     // NEXT unrelated PTT turn would be silently forced to dictate.
     const forcedDictation = this.forcedDictation;
     this.forcedDictation = false;
+    // Same discipline for the agent hotkey's one-shot flag: consumed here
+    // so a failed start, a mode command, or a non-addressed utterance can
+    // never leave it armed for the next unrelated turn. OR'd with the
+    // explicit option so a future non-hotkey caller can force a route too.
+    const forceAgentTurn = (opts?.forceAgent === true) || this.forcedAgent;
+    this.forcedAgent = false;
 
     // Agent voice stop: while the loop is genuinely driving, a bare stop
     // command kills it immediately — no screenshot, no model call. The
@@ -1451,6 +1539,28 @@ export class CompanionManager {
 
     // Agent trigger: a transcript like "zapi agent, open notepad…"
     // diverts to the computer-control loop instead of a talk turn.
+    //
+    // The dedicated agent hotkey is the unconditional case: the user
+    // pressed the key that says "drive my computer", so the transcript IS
+    // the task and no grammar test applies. It is checked before the
+    // `fromVoice && agentEnabled` guard so a hotkey press behaves the
+    // same way in either condition — the guard would otherwise drop the
+    // turn into a talk answer that ignores the key the user deliberately
+    // chose, which reads as a broken hotkey rather than a disabled one.
+    if (forceAgentTurn && settingsStore.get('agentEnabled')) {
+      // Still parse the trigger first: someone who says "zapi agent scout:
+      // check the build" on the agent key should get the clean task and
+      // the named profile, not a task that starts with the trigger words.
+      const task = extractAgentTask(trimmed) ?? trimmed;
+      const target = this.resolveAgentTarget(trimmed, task);
+      if (!target.task.trim()) {
+        await this.speakLine('what should i do?', isCurrent);
+        return;
+      }
+      await this.orchestrator.runTask(target.agentId, target.task);
+      return;
+    }
+
     if (fromVoice && settingsStore.get('agentEnabled')) {
       // Two ways in, same downstream path. The explicit "zapi agent" trigger
       // works from any voice turn. A bare imperative works ONLY from PTT

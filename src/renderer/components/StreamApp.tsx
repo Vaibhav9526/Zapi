@@ -59,6 +59,7 @@ const ACTION_GLYPH: Record<AgentAction['kind'], string> = {
   drag: '⟿',
   move: '•',
   wait: '⏱',
+  open: '⏏',
   done: '✓',
   fail: '✕',
 };

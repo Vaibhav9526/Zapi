@@ -30,8 +30,9 @@ built).
 ## App guides (agent-facing reference)
 
 Per-app notes for driving Windows apps from screenshots. Written for a vision +
-keyboard/mouse agent, not a human. **Docs only — no runtime injection yet**, which
-is tracked as the top gap in [FEATURE-ADOPTION.md](FEATURE-ADOPTION.md).
+keyboard/mouse agent, not a human. **Runtime injection landed**: the agent loop
+probes the foreground window each step (`active-window.ts`) and prefixes the
+step prompt with `Focused app: <name>` + the matching guide excerpt.
 
 | Doc | Purpose |
 |---|---|
@@ -62,6 +63,7 @@ These are the source material the app guides and the adoption matrix are built o
 | [PLAN-streaming-stt.md](PLAN-streaming-stt.md) | Live partial transcripts (streaming STT) — research + spec, pricing to re-verify |
 | [PLAN-clinepass-endpoint.md](PLAN-clinepass-endpoint.md) | Custom OpenAI base URL for ClinePass / OpenAI-compatible endpoints |
 | [PLAN-api-ui.md](PLAN-api-ui.md) | Mind-tab rework: a single API section, ClinePass-first, drop the local-AI picker |
+| [PLAN-glass-ui.md](PLAN-glass-ui.md) | Glass UI redesign — macOS-style translucent surfaces, traffic-light chrome, squircle icon set |
 
 ## Audits (read-only passes over the tree)
 

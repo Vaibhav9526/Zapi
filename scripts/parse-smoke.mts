@@ -422,6 +422,7 @@ const shots: ScreenCapture[] = [fakeShot(11), fakeShot(12)];
     'open youtube',
     'play kishore kumar',
     'search stackoverflow',
+    'search stackoverflow for x',
     'volume up',
     'Open Notepad',
   ];
@@ -432,6 +433,7 @@ const shots: ScreenCapture[] = [fakeShot(11), fakeShot(12)];
     'openness is nice',
     'playing around yesterday',
     'can you open youtube for me',
+    'and then open it',
   ];
   for (const t of noFires) {
     check(looksLikeCommand(t) === false, `command: "${t}" -> false`, looksLikeCommand(t));

@@ -73,7 +73,7 @@ function smokeStep(file: string): StepResult {
  * a script whose own header names the preload to use is launched with it.
  */
 const PRELOAD_FOR: Array<[RegExp, string]> = [
-  [/agent-abort\.mts$/, './scripts/agent-stub-preload.ts'],
+  [/(?:agent-abort|open-action-smoke)\.mts$/, './scripts/agent-stub-preload.ts'],
   [/(?:selfsettings|speak-fallback)-smoke\.mts$/, './scripts/companion-stub-preload.ts'],
   [/(?:store|chat|keystore|routines|artifact|suggestion|suggestion-parse|workspace|fish)-smoke\.mts$/, './scripts/store-preload.ts'],
 ];

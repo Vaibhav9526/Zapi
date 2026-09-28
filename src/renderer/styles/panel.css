@@ -120,7 +120,8 @@ body {
   font-weight: 600;
 }
 .nav-item .nav-ic {
-  width: 17px; flex-shrink: 0; text-align: center;
+  width: 17px; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
   font-size: 13px; color: var(--fl-dim);
 }
 .nav-item.on .nav-ic { color: var(--fl-mac-accent); }

@@ -333,6 +333,12 @@ export function OverlayApp() {
   const [inkFading, setInkFading] = useState(false);
   const [scenePoint, setScenePoint] = useState<{ cue: SceneCue; phrase: string } | null>(null);
   const inkFadeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /**
+   * Beat watchdog: if cues are loaded and 15s passes with no next beat,
+   * main's end-of-scene emit was lost (a superseded turn) — the cursor
+   * would otherwise sit on 'navigating' with its stale label forever.
+   */
+  const sceneWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Mirror of sceneCues for the beat handler — read here instead of
   // inside a setState updater, which React may invoke twice in dev.
   const sceneCuesRef = useRef<SceneCue[]>([]);
@@ -352,6 +358,11 @@ export function OverlayApp() {
   // fades itself out, independent of the acting pill below.
   const [outcomeVisible, setOutcomeVisible] = useState(false);
   const outcomeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Top-right chips: a background agent that just hit done/failed holds
+  // its chip ~2.4s tinted before unmounting — the chip's own exit fade
+  // covers the same window, so the removal never hard-cuts.
+  const [chipHolds, setChipHolds] = useState<Map<string, 'done' | 'failed'>>(new Map());
+  const chipHoldTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
   // ── Always-on (vad) indicator ─────────────────────────────────────
   // True while the capture gate is open in vad mode — the mic is hot and
@@ -891,6 +902,44 @@ export function OverlayApp() {
     }, 650);
   }, [setCompanionPosSync, setCursorModeSync]);
 
+  /**
+   * The shared end-of-scene sequence — run by both the normal
+   * `SCENE(null)` event and the beat watchdog, so the fade + return
+   * flight can never diverge between the two paths.
+   */
+  const finishScene = useCallback(() => {
+    if (sceneWatchdogRef.current) {
+      clearTimeout(sceneWatchdogRef.current);
+      sceneWatchdogRef.current = null;
+    }
+    if (inkFadeTimerRef.current) {
+      clearTimeout(inkFadeTimerRef.current);
+      inkFadeTimerRef.current = null;
+    }
+    setSceneBeat(null);
+    setScenePoint(null);
+    // Clear the ref immediately (not on the fade timer) so a stray beat
+    // landing mid-fade can't hop the cursor to a dead scene.
+    sceneCuesRef.current = [];
+    setInkFading(true);
+    inkFadeTimerRef.current = setTimeout(() => {
+      inkFadeTimerRef.current = null;
+      setSceneCues([]);
+      setInkFading(false);
+    }, 600);
+    holdTimerRef.current = setTimeout(() => {
+      holdTimerRef.current = null;
+      startReturnAnimation();
+    }, 1500);
+  }, [startReturnAnimation]);
+
+  /** 15s of beat silence with cues loaded = the scene's owner is gone. */
+  const SCENE_WATCHDOG_MS = 15_000;
+  const armSceneWatchdog = useCallback(() => {
+    if (sceneWatchdogRef.current) clearTimeout(sceneWatchdogRef.current);
+    sceneWatchdogRef.current = setTimeout(finishScene, SCENE_WATCHDOG_MS);
+  }, [finishScene]);
+
   useEffect(() => {
     // Cursor toggle + hint settings: seed from stored settings (defaults
     // above on read failure), then follow live changes.
@@ -914,7 +963,18 @@ export function OverlayApp() {
     });
 
     const unsubs = [
-      window.flicky.onVoiceStateChanged(setVoiceState),
+      window.flicky.onVoiceStateChanged((state) => {
+        setVoiceState(state);
+        // A new turn supersedes any scene still playing — drop the
+        // stale pointing bubble and bring the companion home so it
+        // can't linger as a dead instruction. 'listening' is the PTT
+        // turn's first beat, 'processing' the VAD path's; a scene only
+        // ever plays under 'responding', so this can't kill a live one.
+        if (state === 'listening' || state === 'processing') {
+          setScenePoint(null);
+          setCursorModeSync('following');
+        }
+      }),
       window.flicky.onCursorPosition((pos) => {
         // Main now sends a `{ off: true }` pulse to whichever overlay
         // previously owned the cursor when it leaves that display.
@@ -958,21 +1018,7 @@ export function OverlayApp() {
         if (!scene) {
           // Fade ink out before dropping state so strokes don't blink
           // away mid-explanation when the scene ends.
-          setSceneBeat(null);
-          setScenePoint(null);
-          // Clear the ref immediately (not on the fade timer) so a stray
-          // beat landing mid-fade can't hop the cursor to a dead scene.
-          sceneCuesRef.current = [];
-          setInkFading(true);
-          inkFadeTimerRef.current = setTimeout(() => {
-            inkFadeTimerRef.current = null;
-            setSceneCues([]);
-            setInkFading(false);
-          }, 600);
-          holdTimerRef.current = setTimeout(() => {
-            holdTimerRef.current = null;
-            startReturnAnimation();
-          }, 1500);
+          finishScene();
           return;
         }
         setInkFading(false);
@@ -983,14 +1029,19 @@ export function OverlayApp() {
         setSceneCues(scene.cues);
         setSceneBeat(null);
         setScenePoint(null);
+        // Scene is live — the watchdog must see a beat within 15s or it
+        // assumes main lost the end-of-scene emit and runs finishScene.
+        armSceneWatchdog();
       }),
       window.flicky.onSceneCue((i) => {
         if (i === null) {
           // Beat stream ending — SCENE(null) will schedule the fade
-          // and the cursor's return flight. Just clear point UI.
+          // and the cursor's return flight. Just clear point UI. The
+          // watchdog stays armed until that clear actually lands.
           setScenePoint(null);
           return;
         }
+        armSceneWatchdog();
         setSceneBeat(i);
         const cue = sceneCuesRef.current[i];
         // Point cues steer the cursor instead of drawing; anything
@@ -1031,6 +1082,38 @@ export function OverlayApp() {
             outcomeTimerRef.current = null;
           }
           setOutcomeVisible(false);
+        }
+        // Corner chips mirror the same terminal beat per background agent —
+        // 'main' is skipped because the pill already narrates its run.
+        if (s.agentId !== 'main') {
+          const timers = chipHoldTimersRef.current;
+          if (s.phase === 'done' || s.phase === 'failed') {
+            if (timers.has(s.agentId)) clearTimeout(timers.get(s.agentId));
+            const phase = s.phase;
+            timers.set(
+              s.agentId,
+              setTimeout(() => {
+                timers.delete(s.agentId);
+                setChipHolds((prev) => {
+                  if (!prev.has(s.agentId)) return prev;
+                  const m = new Map(prev);
+                  m.delete(s.agentId);
+                  return m;
+                });
+              }, 2400),
+            );
+            setChipHolds((prev) => new Map(prev).set(s.agentId, phase));
+          } else if (timers.has(s.agentId)) {
+            // A fresh run cancels the terminal flash immediately.
+            clearTimeout(timers.get(s.agentId));
+            timers.delete(s.agentId);
+            setChipHolds((prev) => {
+              if (!prev.has(s.agentId)) return prev;
+              const m = new Map(prev);
+              m.delete(s.agentId);
+              return m;
+            });
+          }
         }
       }),
       window.flicky.onAgentAction((a) => {
@@ -1104,7 +1187,10 @@ export function OverlayApp() {
       if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
       if (typeToastTimerRef.current) clearTimeout(typeToastTimerRef.current);
       if (inkFadeTimerRef.current) clearTimeout(inkFadeTimerRef.current);
+      if (sceneWatchdogRef.current) clearTimeout(sceneWatchdogRef.current);
       if (outcomeTimerRef.current) clearTimeout(outcomeTimerRef.current);
+      for (const t of chipHoldTimersRef.current.values()) clearTimeout(t);
+      chipHoldTimersRef.current.clear();
       for (const el of sfxRef.current.values()) {
         el.pause();
         el.src = '';
@@ -1112,7 +1198,7 @@ export function OverlayApp() {
       sfxRef.current.clear();
       if (returnAnimRef.current) cancelAnimationFrame(returnAnimRef.current);
     };
-  }, [setCursorModeSync, setCompanionPosSync, startReturnAnimation, hopToScenePoint, playSfx, speakText]);
+  }, [setCursorModeSync, setCompanionPosSync, startReturnAnimation, hopToScenePoint, playSfx, speakText, finishScene, armSceneWatchdog]);
 
   useEffect(() => {
     if (voiceState === 'listening') {
@@ -1245,6 +1331,23 @@ export function OverlayApp() {
     () => agentEchoes.filter((e) => !e.spatial),
     [agentEchoes],
   );
+
+  // Top-right corner stack: one chip per active BACKGROUND agent —
+  // 'main' never appears (the bottom pill narrates it). Agents that just
+  // finished keep their chip briefly via chipHolds so the terminal dot
+  // actually reads before the chip unmounts.
+  const agentChips = useMemo(() => {
+    const rows: Array<{ id: string; phase: string }> = [];
+    for (const [id, t] of agentStatuses) {
+      if (id !== 'main' && ACTIVE_PHASES.has(t.status.phase)) {
+        rows.push({ id, phase: t.status.phase });
+      }
+    }
+    for (const [id, phase] of chipHolds) {
+      if (!rows.some((r) => r.id === id)) rows.push({ id, phase });
+    }
+    return rows;
+  }, [agentStatuses, chipHolds]);
 
   const displayBounds = displayInfo?.bounds ?? null;
 
@@ -1516,6 +1619,33 @@ export function OverlayApp() {
             </div>
           );
         })()}
+
+      {/* Top-right chip stack — one glass chip per ACTIVE background
+          agent ('main' skipped: its run narrates through the pill). A
+          just-finished agent lingers via chipHolds so its done/failed
+          dot reads before the chip unmounts. Display-only; the overlay
+          ignores the mouse globally anyway. */}
+      {agentChips.length > 0 && (
+        <div className="agent-chips" aria-hidden>
+          {agentChips.slice(0, 4).map((c) => {
+            const accent = pillAccent(profiles, c.id);
+            return (
+              <div
+                key={c.id}
+                className={`agent-chip phase-${c.phase}`}
+                style={accent ? ({ '--echo-accent': accent } as CSSProperties) : undefined}
+              >
+                <span className="agent-chip-kaomoji">{agentKaomoji(profiles, c.id)}</span>
+                <span className="agent-chip-name">{agentName(profiles, c.id)}</span>
+                <span className={`agent-chip-dot ${c.phase}`} />
+              </div>
+            );
+          })}
+          {agentChips.length > 4 && (
+            <div className="agent-chip agent-chip-more">+{agentChips.length - 4}</div>
+          )}
+        </div>
+      )}
 
       {typeToast && isCursorOnThisDisplay && (
         // Pill top edge sits ~57px from the bottom; a toast at the CSS
