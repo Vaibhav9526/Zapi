@@ -20,8 +20,15 @@ export function Taskbar() {
         <a className="tb-btn" href="#top" title="start">
           <WinLogo className="tb-glyph" />
         </a>
-        <a className="tb-btn running" href="#top" title="flicky.exe — running">
+        <a className="tb-btn running" href="#top" title="zapi.exe — running">
           <Mark className="tb-mark" />
+        </a>
+        <a
+          className="tb-btn"
+          href="#pricing"
+          title="pricing"
+        >
+          <DownloadGlyph className="tb-glyph" />
         </a>
         <a
           className="tb-btn"
@@ -31,15 +38,6 @@ export function Taskbar() {
           title="source on github"
         >
           <GitHubGlyph className="tb-glyph" />
-        </a>
-        <a
-          className="tb-btn"
-          href={RELEASES}
-          target="_blank"
-          rel="noopener noreferrer"
-          title="releases"
-        >
-          <DownloadGlyph className="tb-glyph" />
         </a>
       </div>
 

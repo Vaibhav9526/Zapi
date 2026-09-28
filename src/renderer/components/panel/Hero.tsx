@@ -10,7 +10,9 @@ export function Hero({ voiceState, settings }: HeroProps) {
   const { apiKeyStatus, mindProvider } = settings;
   const mindReady =
     mindProvider === 'openai' ? apiKeyStatus.openai : apiKeyStatus.anthropic;
-  const connectedCount = [mindReady, apiKeyStatus.elevenlabs, apiKeyStatus.groq].filter(
+  const voiceReady =
+    settings.ttsProvider === 'fishaudio' ? apiKeyStatus.fishaudio : apiKeyStatus.elevenlabs;
+  const connectedCount = [mindReady, voiceReady, apiKeyStatus.groq].filter(
     Boolean,
   ).length;
   const ready = connectedCount === 3;
@@ -34,9 +36,9 @@ export function Hero({ voiceState, settings }: HeroProps) {
   return (
     <div className="hero">
       <div className="hero-top">
-        <div className="logo">F</div>
+        <div className="logo">Z</div>
         <div>
-          <div className="brand-name">Flicky</div>
+          <div className="brand-name">Zapi</div>
           <div className="brand-sub">your voice companion</div>
         </div>
         <div className={`state ${stateClass}`}>{stateLabel}</div>

@@ -1,11 +1,11 @@
 {
-  "name": "flicky",
+  "name": "zapi",
   "version": "1.2.1",
-  "description": "Cross-platform AI companion — voice-driven, screen-aware assistant with a pointing cursor overlay",
+  "description": "ZAPI — a screen-aware AI companion for Windows that talks, draws on your screen, and drives your mouse + keyboard",
   "main": "dist/main/main/index.js",
   "author": {
-    "name": "Flicky Contributors",
-    "email": "noreply@flicky.app"
+    "name": "ZAPI Contributors",
+    "email": "noreply@zapi.app"
   },
   "license": "MIT",
   "scripts": {
@@ -47,8 +47,8 @@
     "vite-plugin-electron": "^0.28.0"
   },
   "build": {
-    "appId": "com.flicky.app",
-    "productName": "Flicky",
+    "appId": "com.zapi.app",
+    "productName": "ZAPI",
     "directories": {
       "output": "release",
       "buildResources": "assets"
@@ -76,12 +76,14 @@
       "entitlements": "assets/entitlements.mac.plist",
       "entitlementsInherit": "assets/entitlements.mac.plist",
       "extendInfo": {
-        "NSMicrophoneUsageDescription": "Flicky needs microphone access for voice commands.",
-        "NSScreenCaptureUsageDescription": "Flicky captures your screen to provide context-aware AI assistance."
+        "NSMicrophoneUsageDescription": "Zapi needs microphone access for voice commands.",
+        "NSScreenCaptureUsageDescription": "Zapi captures your screen to provide context-aware AI assistance."
       }
     },
     "win": {
       "icon": "assets/icon.ico",
+      "publisherName": "ZAPI",
+      "artifactName": "ZAPI-Setup-${version}.${ext}",
       "target": [
         {
           "target": "nsis",
@@ -91,9 +93,11 @@
     },
     "nsis": {
       "oneClick": false,
+      "perMachine": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
+      "createStartMenuShortcut": true,
+      "shortcutName": "ZAPI"
     },
     "linux": {
       "icon": "assets/icons",

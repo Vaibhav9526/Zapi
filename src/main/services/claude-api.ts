@@ -27,6 +27,8 @@ export interface ClaudeStreamCallbacks {
 export interface ClaudeChatOptions {
   reasoningDepth: ReasoningDepth;
   replyTone: ReplyTone;
+  /** 'agent' swaps the talk persona for the computer-control prompt. */
+  mode?: 'talk' | 'agent';
   /** Aborting mid-stream is treated as a graceful interrupt, not an error. */
   signal?: AbortSignal;
 }
@@ -42,11 +44,14 @@ export class ClaudeAPI {
   ): Promise<void> {
     const apiKey = getApiKey('anthropic');
     if (!apiKey) {
-      callbacks.onError(new Error('Anthropic API key not configured. Add it in the Flicky panel.'));
+      callbacks.onError(new Error('Anthropic API key not configured. Add it in the Zapi panel.'));
       return;
     }
 
-    const systemPrompt = buildSystemPrompt(options.replyTone, { hasWebSearch: true });
+    const systemPrompt = buildSystemPrompt(options.replyTone, {
+      hasWebSearch: true,
+      mode: options.mode,
+    });
 
     const imageContent = screenshots.map((sc) => ({
       type: 'image' as const,
@@ -84,7 +89,7 @@ export class ClaudeAPI {
       system: systemPrompt,
       messages,
       stream: true,
-      // Let Flicky reach the web when it needs fresh info. Server-side
+      // Let Zapi reach the web when it needs fresh info. Server-side
       // tool — Claude decides when to search and we just stream the
       // final answer.
       tools: [

@@ -1,5 +1,6 @@
 import type { ConversationTurn, MemoryStats } from '../../shared/types';
 import { getApiKey } from './key-store';
+import { normalizeBase } from './ollama-api';
 import * as settingsStore from './settings-store';
 
 /**
@@ -19,6 +20,12 @@ import * as settingsStore from './settings-store';
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_VERSION = '2023-06-01';
 const OPENAI_API_URL = 'https://api.openai.com/v1/chat/completions';
+
+/** Compaction rides the same custom endpoint the chat path resolves. */
+function openaiChatUrl(): string {
+  const base = settingsStore.get('openAIBaseUrl').trim();
+  return base ? `${normalizeBase(base)}/v1/chat/completions` : OPENAI_API_URL;
+}
 
 export const MAX_TOKEN_BUDGET = 250_000;
 export const COMPACT_TRIGGER = 200_000;
@@ -60,12 +67,21 @@ export class ContextManager {
    * Append a user/assistant exchange. Called once per turn after we have
    * the final assistant text. If Claude reported usage we can pass the
    * exact numbers, otherwise we estimate.
+   *
+   * `kind: 'dictation'` entries are refused: dictated text was headed to
+   * whatever app the cursor sat in, not a question to Zapi — recording it
+   * would stuff the rolling summary with paste-outs.
    */
   async recordExchange(
     userText: string,
     assistantText: string,
-    opts: { inputTokens?: number; outputTokens?: number } = {},
+    opts: {
+      inputTokens?: number;
+      outputTokens?: number;
+      kind?: 'talk' | 'dictation' | 'agent';
+    } = {},
   ): Promise<void> {
+    if (opts.kind === 'dictation') return;
     const userTok = opts.inputTokens ?? approxTokens(userText);
     const asstTok = opts.outputTokens ?? approxTokens(assistantText);
 
@@ -104,7 +120,7 @@ export class ContextManager {
     const recentTurns = this.turns.slice(this.turns.length - keep);
 
     const transcript = olderTurns
-      .map((t) => `${t.role === 'user' ? 'User' : 'Flicky'}: ${t.content}`)
+      .map((t) => `${t.role === 'user' ? 'User' : 'Zapi'}: ${t.content}`)
       .join('\n\n');
 
     const priorSummaryBlock = this.summary
@@ -126,7 +142,7 @@ export class ContextManager {
       this.turns = recentTurns;
       this.lastCompactedAt = Date.now();
     } catch (err) {
-      console.error('[Flicky] context compact failed:', err);
+      console.error('[Zapi] context compact failed:', err);
       if (force) {
         // Manual compaction: surface the error so the UI can show it.
         throw err;
@@ -189,7 +205,7 @@ export class ContextManager {
 
   private async summarizeViaOpenAI(prompt: string, apiKey: string): Promise<string> {
     const model = settingsStore.get('selectedOpenAIModel');
-    const response = await fetch(OPENAI_API_URL, {
+    const response = await fetch(openaiChatUrl(), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

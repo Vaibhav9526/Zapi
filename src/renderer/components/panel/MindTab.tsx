@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type {
   FlickySettings,
   ClaudeModel,
@@ -8,7 +8,38 @@ import type {
   ReplyTone,
 } from '../../../shared/types';
 import { ProviderKey } from './ProviderKey';
-import { OllamaSection } from './OllamaSection';
+
+/**
+ * Commit-on-blur field for the OpenAI base URL — draft locally so typing
+ * doesn't fire a settings write per keystroke; Enter applies, Escape reverts.
+ */
+function BaseUrlInput({ value }: { value: string }) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const commit = (raw: string) => {
+    const v = raw.trim();
+    if (v !== value) window.flicky.setOpenAIBaseUrl(v);
+    setDraft(null);
+  };
+  return (
+    <input
+      className="text-input"
+      type="text"
+      value={draft ?? value}
+      placeholder="https://api.openai.com (or your ClinePass endpoint)"
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={(e) => commit(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          commit(e.currentTarget.value);
+          e.currentTarget.blur();
+        }
+        if (e.key === 'Escape') setDraft(null);
+      }}
+      spellCheck={false}
+      autoComplete="off"
+    />
+  );
+}
 
 interface MindTabProps {
   settings: FlickySettings;
@@ -60,13 +91,38 @@ export function MindTab({ settings }: MindTabProps) {
   const provider = settings.mindProvider;
   const isAnthropic = provider === 'anthropic';
   const isOpenAI = provider === 'openai';
-  const isOllama = provider === 'ollama';
   const setTone = (t: ReplyTone) => window.flicky.setReplyTone(t);
   const setDepth = (d: ReasoningDepth) => window.flicky.setReasoningDepth(d);
 
-  const providerLabel = isAnthropic ? 'Anthropic' : isOpenAI ? 'OpenAI' : 'Local';
-  const providerLogoText = isAnthropic ? 'A' : isOpenAI ? 'Ai' : '⬡';
-  const providerLogoClass = isAnthropic ? '' : isOpenAI ? 'openai' : 'local';
+  const providerLabel = isAnthropic ? 'Anthropic' : 'ClinePass · OpenAI-compatible';
+  const providerLogoText = isAnthropic ? 'A' : 'Ai';
+  const providerLogoClass = isAnthropic ? '' : 'openai';
+
+  // Model ids advertised by the configured endpoint (GET {base}/v1/models
+  // in main). Empty = unreachable/no key → the hardcoded picker stays.
+  // Refetches when the base URL or the key's presence flips.
+  const [remoteModels, setRemoteModels] = useState<string[]>([]);
+  useEffect(() => {
+    if (!isOpenAI) return;
+    let cancelled = false;
+    window.flicky
+      .listRemoteModels()
+      .then((ids) => {
+        if (!cancelled) setRemoteModels(ids ?? []);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpenAI, settings.openAIBaseUrl, settings.apiKeyStatus.openai]);
+
+  // Endpoint-returned ids win over the static list. The cast is safe on
+  // the wire — main forwards the selected id verbatim — but keeps
+  // OpenAIModel's static union for the hardcoded entries' type-checking.
+  const openAiItems: Array<ModelEntry<OpenAIModel>> =
+    remoteModels.length > 0
+      ? remoteModels.map((id) => ({ id: id as OpenAIModel, name: id, sub: '' }))
+      : OPENAI_MODELS;
 
   return (
     <>
@@ -74,7 +130,7 @@ export function MindTab({ settings }: MindTabProps) {
         Mind<em>.</em>
       </h1>
       <p className="main-lead">
-        How Flicky thinks — which provider, which model, how deep it reasons, and the tone of
+        How zapi thinks — which provider, which model, how deep it reasons, and the tone of
         its replies.
       </p>
 
@@ -98,8 +154,7 @@ export function MindTab({ settings }: MindTabProps) {
             {(
               [
                 { id: 'anthropic', label: 'Anthropic', sub: 'Claude Sonnet / Opus · built-in web search' },
-                { id: 'openai', label: 'OpenAI', sub: 'GPT-5 · GPT-4o · reasoning effort' },
-                { id: 'ollama', label: 'Local', sub: 'Ollama · LM Studio · vLLM · any OpenAI-compatible endpoint' },
+                { id: 'openai', label: 'OpenAI-compatible', sub: 'ClinePass · OpenAI · any /v1 endpoint' },
               ] as Array<{ id: MindProvider; label: string; sub: string }>
             ).map((p) => (
               <button
@@ -128,37 +183,29 @@ export function MindTab({ settings }: MindTabProps) {
           />
         )}
         {isOpenAI && (
-          <ProviderKey
-            name="openai"
-            providerLabel="OpenAI"
-            providerLogo="Ai"
-            providerLogoClass="openai"
-            isSet={settings.apiKeyStatus.openai}
-            keyPlaceholder="sk-..."
-            hideProviderHeader
-          />
+          <>
+            <ProviderKey
+              name="openai"
+              providerLabel="ClinePass · OpenAI-compatible"
+              providerLogo="Ai"
+              providerLogoClass="openai"
+              isSet={settings.apiKeyStatus.openai}
+              keyPlaceholder="sk-... or clinepass key"
+              hideProviderHeader
+            />
+            <div className="label">Base URL (optional)</div>
+            <BaseUrlInput value={settings.openAIBaseUrl} />
+            <p className="section-hint" style={{ marginTop: 8 }}>
+              empty = api.openai.com · clinepass: https://api.cline.bot/api
+            </p>
+          </>
         )}
-        {!isOllama && (
-          <p className="section-hint">Powers the reasoning behind every answer.</p>
-        )}
+        <p className="section-hint">Powers the reasoning behind every answer.</p>
       </div>
 
-      {isOllama ? (
-        <OllamaSection
-          ollamaEnabled={
-            (settings.localConnections ?? []).some((c) => c.enabled)
-          }
-          onToggleOllama={(enabled) => {
-            const conns = settings.localConnections ?? [];
-            conns.forEach((c) => {
-              void window.flicky.updateLocalConnection(c.id, { enabled });
-            });
-          }}
-        />
-      ) : (
-        <>
-          <div className="section">
-            <div className="section-title" style={{ marginBottom: 14 }}>Model</div>
+      <>
+        <div className="section">
+          <div className="section-title" style={{ marginBottom: 14 }}>Model</div>
             <div className="model-list">
               {isAnthropic
                 ? CLAUDE_MODELS.map((m) => (
@@ -175,7 +222,7 @@ export function MindTab({ settings }: MindTabProps) {
                       {m.tag && <div className={`model-tag ${m.tag.cls}`}>{m.tag.label}</div>}
                     </button>
                   ))
-                : OPENAI_MODELS.map((m) => (
+                : openAiItems.map((m) => (
                     <button
                       key={m.id}
                       className={`model-item ${settings.selectedOpenAIModel === m.id ? 'on' : ''}`}
@@ -184,18 +231,35 @@ export function MindTab({ settings }: MindTabProps) {
                       <div className="model-radio" />
                       <div className="model-meta">
                         <div className="model-name">{m.name}</div>
-                        <div className="model-sub">{m.sub}</div>
+                        {m.sub && <div className="model-sub">{m.sub}</div>}
                       </div>
                       {m.tag && <div className={`model-tag ${m.tag.cls}`}>{m.tag.label}</div>}
                     </button>
                   ))}
             </div>
+            {isOpenAI && (
+              <>
+                <div className="label">Custom model id (optional)</div>
+                <input
+                  className="text-input"
+                  type="text"
+                  value={settings.customOpenAIModel}
+                  placeholder="e.g. gpt-6-luna"
+                  onChange={(e) => window.flicky.setCustomOpenAIModel(e.target.value)}
+                  spellCheck={false}
+                  autoComplete="off"
+                />
+                <p className="section-hint">
+                  overrides the picker — e.g. an OpenAI-compatible endpoint model like gpt-6-luna
+                </p>
+              </>
+            )}
           </div>
 
           <div className="section">
             <div className="section-title" style={{ marginBottom: 6 }}>Reasoning depth</div>
             <p className="section-hint" style={{ margin: '0 0 14px' }}>
-              How much Flicky thinks before replying.
+              How much zapi thinks before replying.
             </p>
             <div className="seg">
               <button
@@ -218,8 +282,7 @@ export function MindTab({ settings }: MindTabProps) {
               </button>
             </div>
           </div>
-        </>
-      )}
+      </>
 
       <div className="section">
         <div className="section-title" style={{ marginBottom: 14 }}>Reply tone</div>

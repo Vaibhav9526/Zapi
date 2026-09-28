@@ -1,4 +1,4 @@
-import { systemPreferences } from 'electron';
+import * as electron from 'electron';
 
 /**
  * Native auto-typer wrapper. The underlying module (`@nut-tree-fork/nut-js`)
@@ -20,8 +20,11 @@ async function load(): Promise<NutJs | null> {
   try {
     nutJs = await import('@nut-tree-fork/nut-js');
   } catch (err) {
-    console.error('[Flicky] auto-typer native module unavailable:', err);
+    console.error('[Zapi] auto-typer native module unavailable:', err);
     nutJs = null;
+    // Don't latch a transient failure (antivirus lock, dll still
+    // extracting) — the next attempt retries the import.
+    loadAttempted = false;
   }
   return nutJs;
 }
@@ -34,18 +37,37 @@ async function load(): Promise<NutJs | null> {
  */
 export function isAccessibilityGranted(): boolean {
   if (process.platform !== 'darwin') return true;
-  return systemPreferences.isTrustedAccessibilityClient(false);
+  return electron.systemPreferences.isTrustedAccessibilityClient(false);
 }
 
 /**
- * Surface the macOS Accessibility prompt and add Flicky to the trust
+ * Surface the macOS Accessibility prompt and add Zapi to the trust
  * list. The user still has to enable the checkbox themselves; the OS
  * does not return a granted state until they do, but the dialog gives
  * them the discovery path.
  */
 export function promptAccessibility(): boolean {
   if (process.platform !== 'darwin') return true;
-  return systemPreferences.isTrustedAccessibilityClient(true);
+  return electron.systemPreferences.isTrustedAccessibilityClient(true);
+}
+
+/**
+ * Text keystroke-typing can't be trusted to reproduce: multi-line
+ * content ('\n' arrives as Enter — which *sends* a chat message rather
+ * than breaking the line) and anything outside ASCII (emoji, CJK,
+ * accents — libnut's Unicode coverage is patchy on Windows). Those go
+ * through the clipboard + synthetic paste: instant, exact, and it lands
+ * newlines as real line breaks.
+ */
+function needsClipboardPaste(text: string): boolean {
+  for (const ch of text) {
+    // C0 controls (\n, \t, \r, and the rest that type weirdly anyway),
+    // DEL, or anything non-ASCII → paste. Code-point loop instead of a
+    // regex so we don't need a no-control-regex waiver.
+    const cp = ch.codePointAt(0) ?? 0;
+    if (cp < 0x20 || cp >= 0x7f) return true;
+  }
+  return false;
 }
 
 /**
@@ -64,10 +86,29 @@ export async function typeText(text: string): Promise<boolean> {
     // characters at zero delay, but raising this hurts the "magical"
     // feel. If we see drops in practice we can bump to ~5–10ms.
     lib.keyboard.config.autoDelayMs = 0;
+    if (needsClipboardPaste(text)) {
+      const { Key } = lib;
+      const modifier = process.platform === 'darwin' ? Key.LeftCmd : Key.LeftControl;
+      // Dictation mutates the user's clipboard — stash + restore it so
+      // paste-out doesn't silently clobber whatever they copied. The
+      // restore waits a beat because the focused app reads the
+      // clipboard asynchronously on some platforms.
+      const previous = electron.clipboard.readText();
+      electron.clipboard.writeText(text);
+      await lib.keyboard.pressKey(modifier);
+      await lib.keyboard.pressKey(Key.V);
+      await lib.keyboard.releaseKey(Key.V);
+      await lib.keyboard.releaseKey(modifier);
+      const restore = previous;
+      setTimeout(() => {
+        try { electron.clipboard.writeText(restore); } catch { /* cosmetic — skip */ }
+      }, 400);
+      return true;
+    }
     await lib.keyboard.type(text);
     return true;
   } catch (err) {
-    console.error('[Flicky] auto-type failed:', err);
+    console.error('[Zapi] auto-type failed:', err);
     return false;
   }
 }

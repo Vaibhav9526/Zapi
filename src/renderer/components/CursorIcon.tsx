@@ -6,7 +6,7 @@ interface CursorIconProps {
 }
 
 /**
- * The Flicky companion cursor, as a standalone icon.
+ * The ZAPI companion cursor, as a standalone icon.
  * Unique gradient id per instance so multiple instances don't collide.
  */
 export function CursorIcon({ size = 40, className }: CursorIconProps) {

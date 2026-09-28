@@ -3,7 +3,7 @@ import { RecycleIcon, ImageFileIcon, JsonFileIcon } from './Icons';
 
 /**
  * The stuff lying around on the desktop behind the wordmark: a sticky
- * note, a toast, a mini replica of the Flicky overlay, a tiny window,
+ * note, a toast, a mini replica of the Zapi overlay, a tiny window,
  * some kaomoji and a couple of files. Each drifts a little with the
  * mouse (see Parallax) and is hidden on narrow screens.
  */
@@ -15,7 +15,7 @@ export function HeroClutter() {
         <div className="note">
           <div className="note-bar" />
           <div className="note-body">
-            hold ctrl+alt+x
+            press the hotkey
             <br />
             and just talk
           </div>
@@ -47,7 +47,7 @@ export function HeroClutter() {
         <div className="toast">
           <Mark className="toast-mark" />
           <div className="toast-txt">
-            <strong>Flicky</strong>
+            <strong>Zapi</strong>
             <span>Copied — press Ctrl+V to paste</span>
           </div>
           <span className="toast-time">now</span>

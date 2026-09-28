@@ -10,42 +10,37 @@ import { PointAt } from './components/PointAt';
 import { MockListen, MockSee, MockSpeak, MockPoint } from './components/Mockups';
 import {
   WinLogo,
-  AppleGlyph,
   TextFileIcon,
   FolderIcon,
   InstallerIcon,
-  ZipIcon,
 } from './components/Icons';
 
 const REPO = 'https://github.com/pango07/flicky';
 const RELEASES = `${REPO}/releases/latest`;
-const CLICKY = 'https://www.clicky.so/';
-const FARZA = 'https://github.com/farzaa';
-const JULIO = 'https://github.com/jvaught01';
 
 const STEPS = [
   {
     n: '01',
-    t: 'hear you.',
-    d: 'hold to talk, or tap to toggle. groq whisper turns what you said into text before you finish letting go.',
+    t: 'talk.',
+    d: 'press the hotkey and ask out loud. speech-to-text hears you, and a screenshot goes along so you never describe what’s on screen twice.',
     mock: <MockListen />,
   },
   {
     n: '02',
-    t: 'see your screen.',
-    d: 'a screenshot goes with every question — claude, gpt, or a local model reads it, so you never describe anything twice.',
+    t: 'it sees what you see.',
+    d: 'zapi looks at the exact window you’re in — any app, any tool — and understands buttons, menus, errors and all.',
     mock: <MockSee />,
   },
   {
     n: '03',
-    t: 'speak back.',
-    d: 'elevenlabs voice, or text-only if you would rather read. the stream window mirrors every word.',
+    t: 'it draws the answer.',
+    d: 'arrows, boxes, labels and highlights land right on your screen, so “click there” actually means something.',
     mock: <MockSpeak />,
   },
   {
     n: '04',
-    t: 'point at things.',
-    d: 'multi-step answers become numbered walkthroughs, and the blue cursor flies to the exact pixel each time.',
+    t: 'or say “zapi agent”.',
+    d: 'agent mode takes the mouse and keyboard and does the task for you — walking through apps step by step until it’s done.',
     mock: <MockPoint />,
   },
 ] as const;
@@ -53,73 +48,82 @@ const STEPS = [
 const FEATURES = [
   {
     n: '01',
-    file: 'local.txt',
-    t: 'local by default',
-    d: 'chats and keys are encrypted on your own machine. nothing lives on our servers, because there aren’t any.',
+    file: 'talk.exe',
+    t: 'talk',
+    d: 'press the hotkey and just ask. it hears you, sees your screen, and talks back — no typing, no pasting screenshots.',
   },
   {
     n: '02',
-    file: 'brain.exe',
-    t: 'your choice of brain',
-    d: 'claude sonnet or opus 4.6, the gpt-5 family, or any local / openai-compatible endpoint — ollama, lm studio, whatever you run.',
+    file: 'draw.exe',
+    t: 'draw',
+    d: 'answers arrive as arrows, boxes, labels and highlights drawn directly on your screen, pointing at the exact pixel.',
   },
   {
     n: '03',
-    file: 'memory.log',
-    t: 'never runs out of context',
-    d: 'long conversations auto-compact into a summary, so a single chat can just keep going all day.',
+    file: 'agent.exe',
+    t: 'agent',
+    d: 'say “zapi agent” and it takes over mouse + keyboard to do the task for you — multi-step walkthroughs included.',
   },
   {
     n: '04',
-    file: 'typing.dll',
-    t: 'types for you',
-    d: 'opt in and flicky types straight into the focused field — otherwise the answer lands on your clipboard.',
+    file: 'dictate.txt',
+    t: 'dictation',
+    d: 'speak and zapi types it where you’re working — docs, chat, code, anywhere the cursor already is.',
   },
   {
     n: '05',
-    file: 'stream.exe',
-    t: 'stream window',
-    d: 'a floating transparent panel mirrors the live q&a. scroll it, select it, copy straight out of it.',
+    file: 'always-on.log',
+    t: 'always-on',
+    d: 'a tiny buddy that lives on your desktop. one hotkey away, listening when you need it, quiet when you don’t.',
   },
   {
     n: '06',
-    file: 'setup.exe',
-    t: 'guided setup',
-    d: 'a three-minute wizard tests each key, your shortcut and your mic before it lets you finish.',
+    file: 'private.sys',
+    t: 'private by default',
+    d: 'your screen is only captured when you press the hotkey. screenshots are never stored — they’re just context for that answer.',
   },
 ] as const;
 
-const DOWNLOADS = [
+const PLANS = [
   {
-    file: 'Flicky-Setup-1.2.1.exe',
-    os: 'windows',
-    detail: 'x64 + arm64 · one installer',
-    icon: <InstallerIcon />,
-    id: 'dl-windows',
+    name: 'free',
+    price: '$0',
+    per: 'forever',
+    blurb: 'try the buddy on your desktop.',
+    feats: ['25 talk messages / mo', '25 agent messages / mo', 'draw-on-screen answers', 'windows app'],
+    cta: 'get zapi',
+    tag: 'early access',
+    highlight: false,
   },
   {
-    file: 'Flicky-1.2.1.dmg',
-    os: 'mac',
-    detail: 'apple silicon or intel',
-    icon: <FolderIcon />,
-    id: 'dl-mac',
+    name: 'pro',
+    price: '$20',
+    per: '/ mo',
+    blurb: 'for daily drivers.',
+    feats: ['unlimited talk + dictation', '150 agent messages / mo', 'draw-on-screen answers', 'always-on listening', 'priority updates'],
+    cta: 'get zapi pro',
+    tag: 'coming soon',
+    highlight: true,
   },
   {
-    file: 'Flicky-1.2.1.AppImage',
-    os: 'linux',
-    detail: 'also .deb',
-    icon: <ZipIcon />,
-    id: 'dl-linux',
+    name: 'max',
+    price: '$100',
+    per: '/ mo',
+    blurb: 'for power users + teams.',
+    feats: ['everything in pro', '1,000 agent messages / mo', 'longest context + memory', 'early agent features'],
+    cta: 'get zapi max',
+    tag: 'coming soon',
+    highlight: false,
   },
 ] as const;
 
 const MARQUEE = [
-  'works on windows',
-  'works on mac',
-  'works on linux',
-  'local by default',
-  'bring your own keys',
-  'mit licensed',
+  'press the hotkey',
+  'it sees what you see',
+  'it draws on your screen',
+  '“zapi agent” does it for you',
+  'windows · free',
+  'private by default',
 ];
 
 function MarqueeRun({ k }: { k: string }) {
@@ -147,9 +151,13 @@ export default function Page() {
             <HeroClutter />
 
             <div className="hero-copy">
-              <p className="eyebrow">windows · mac · linux</p>
-              <ShaderWordmark text="flicky" />
-              <p className="lead">an ai buddy that lives on your desktop.</p>
+              <p className="eyebrow">windows · free</p>
+              <ShaderWordmark text="zapi" />
+              <p className="lead">an ai buddy that lives on your pc.</p>
+              <p className="sub">
+                press the hotkey and it sees what you see; ask out loud and it draws the
+                answer right on your screen, or say “zapi agent” and it does the task for you.
+              </p>
               <div className="cta">
                 <a
                   className="btn primary"
@@ -159,59 +167,21 @@ export default function Page() {
                   rel="noopener noreferrer"
                 >
                   <WinLogo className="btn-glyph" />
-                  download for windows
+                  get zapi
                 </a>
-                <a
-                  className="btn ghost"
-                  href={RELEASES}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  <AppleGlyph className="btn-glyph" />
-                  download for mac
-                </a>
-                <a
-                  className="btn text"
-                  href={RELEASES}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  linux (.AppImage / .deb)
+                <a className="btn ghost" href="#how">
+                  watch it work
                 </a>
               </div>
-              <p className="tiny">100% free · open source · bring your own keys</p>
+              <p className="tiny">windows · free · private by default</p>
             </div>
 
             <PointAt target="#cta-win" label="click here!" delay={1200} />
           </div>
 
-          <div className="hero-video">
+          <div className="hero-video" id="demos">
             <HeroVideo />
           </div>
-        </section>
-
-        {/* --------------------------------------------------------- dream */}
-        <section className="section dream">
-          <span className="kao float-kao a">( ˶ˆ ᗜ ˆ˵ )</span>
-          <span className="kao float-kao b">(•_•)</span>
-          <Win title="readme.txt" icon={<TextFileIcon />} width="620px" className="notepad center">
-            <p>
-              the models got really good, and we&apos;re all still typing at them in a chat box
-              in a browser tab. that felt backwards.
-            </p>
-            <p>
-              so we put one on your screen instead. it looks at what you&apos;re doing, talks
-              back out loud, and points at the thing it&apos;s talking about — no pasting
-              screenshots, no describing where the button is.
-            </p>
-            <p>
-              flicky is a from-scratch, cross-platform take on{' '}
-              <a href={FARZA} target="_blank" rel="noopener noreferrer">farza</a>&apos;s{' '}
-              <a href={CLICKY} target="_blank" rel="noopener noreferrer">clicky</a>, built by{' '}
-              <a href={JULIO} target="_blank" rel="noopener noreferrer">julio</a> so the rest of
-              us get one too.
-            </p>
-          </Win>
         </section>
 
         {/* -------------------------------------------------- how it works */}
@@ -228,7 +198,7 @@ export default function Page() {
                 <div className="row-say">
                   <span className="chip">
                     <Mark className="chip-mark" />
-                    flicky
+                    zapi
                   </span>
                   <div className="bubble">
                     <h3>
@@ -267,35 +237,77 @@ export default function Page() {
           </div>
         </section>
 
-        {/* ----------------------------------------------------- get flicky */}
+        {/* ------------------------------------------------------ pricing */}
+        <section className="section" id="pricing">
+          <h2 className="sec-head">pricing</h2>
+          <p className="sec-sub">start free. upgrade when you live in it. billing is early-access — reserve your seat.</p>
+          <div className="price-grid">
+            {PLANS.map((p) => (
+              <Win
+                key={p.name}
+                title={`${p.name}.plan`}
+                icon={<TextFileIcon />}
+                className={`price${p.highlight ? ' hot' : ''}`}
+              >
+                <span className="price-tag">{p.tag}</span>
+                <h3 className="price-name">{p.name}</h3>
+                <p className="price-amount">
+                  {p.price}
+                  <span>{p.per}</span>
+                </p>
+                <p className="price-blurb">{p.blurb}</p>
+                <ul className="price-feats">
+                  {p.feats.map((f) => (
+                    <li key={f}>{f}</li>
+                  ))}
+                </ul>
+                <a
+                  className={`btn sm${p.highlight ? ' primary' : ' ghost'}`}
+                  href={RELEASES}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  {p.cta}
+                </a>
+              </Win>
+            ))}
+          </div>
+        </section>
+
+        {/* ----------------------------------------------------- get zapi */}
         <section className="section" id="get">
           <div className="getcard">
-            <span className="free-tag">free</span>
-            <h2>get flicky.</h2>
+            <span className="free-tag">windows · free</span>
+            <h2>get zapi.</h2>
             <p className="get-sub">
-              100% free. every tagged release is built and published on github.
+              one installer for windows. press the hotkey and it sees what you see.
             </p>
-            <div className="dl-grid">
-              {DOWNLOADS.map((d) => (
-                <Win key={d.file} title={d.file} icon={d.icon} className="dl-win">
-                  <div className="dl-os">{d.os}</div>
-                  <div className="dl-detail">{d.detail}</div>
-                  <a
-                    className="btn primary sm"
-                    id={d.id}
-                    href={RELEASES}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    download
-                  </a>
-                </Win>
-              ))}
+            <div className="dl-grid single">
+              <Win title="Zapi-Setup.exe" icon={<InstallerIcon />} className="dl-win">
+                <div className="dl-os">windows</div>
+                <div className="dl-detail">x64 + arm64 · one installer</div>
+                <a
+                  className="btn primary sm"
+                  id="dl-windows"
+                  href={RELEASES}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <WinLogo className="btn-glyph" />
+                  download
+                </a>
+              </Win>
+              <Win title="readme.txt" icon={<FolderIcon />} className="dl-win">
+                <div className="dl-os small">mac + linux?</div>
+                <div className="dl-detail">windows only for now — other platforms later</div>
+                <a className="btn ghost sm" href="#faq">
+                  read the faq
+                </a>
+              </Win>
             </div>
             <p className="get-keys">
-              you&apos;ll need keys for anthropic or openai (or none, with a local model), groq
-              for speech-to-text, and optionally elevenlabs for a voice. add them in the app —
-              they never leave your machine.
+              screenshots are only captured when you press the hotkey, and never stored.
+              bring your own keys or sign in — either way, your screen stays yours.
             </p>
             <PointAt target="#dl-windows" label="over here!" />
           </div>
@@ -306,70 +318,50 @@ export default function Page() {
           <h2 className="sec-head">questions</h2>
           <Win title="questions.txt" icon={<TextFileIcon />} width="760px" className="faq center">
             <details>
-              <summary>is it private?</summary>
+              <summary>what is zapi?</summary>
               <p>
-                yes. everything runs locally — your chats stay on your machine and your api keys
-                are encrypted at rest. there is no flicky backend for anything to be sent to. the
-                only network calls are the ones you configure, straight to the providers you
-                picked.
+                zapi is an ai buddy that lives on your pc. press the hotkey and it sees what
+                you see; ask out loud and it draws the answer right on your screen — or say
+                “zapi agent” and it does the task for you.
               </p>
             </details>
             <details>
-              <summary>what does it cost?</summary>
+              <summary>is my screen private?</summary>
               <p>
-                nothing. flicky is free and mit licensed. you pay your model and voice providers
-                directly for what you use — and if you run a local model through ollama or lm
-                studio, that part costs nothing at all.
+                yes — your screen is only captured when you press the hotkey. screenshots are
+                never stored; they’re just context for that one answer and then they’re gone.
               </p>
             </details>
             <details>
-              <summary>does it work on windows?</summary>
+              <summary>what can it do?</summary>
               <p>
-                yes — that&apos;s the whole point of this project. hold-to-talk, the tray
-                behaviour, the mic permission flow and the setup wizard were all built and tested
-                on windows, not bolted on afterwards. linux works too.
+                it teaches any tool, walks you through tasks step by step, draws arrows, boxes,
+                labels and highlights on your screen, runs agents that click and type for you,
+                and dictates text wherever your cursor is.
               </p>
             </details>
             <details>
-              <summary>how is this different from clicky?</summary>
+              <summary>talk vs agents — what’s the difference?</summary>
               <p>
-                <a href={CLICKY} target="_blank" rel="noopener noreferrer">clicky</a> is{' '}
-                <a href={FARZA} target="_blank" rel="noopener noreferrer">farza</a>&apos;s
-                original macos app and the whole inspiration — he invented this interaction.
-                flicky is an independent electron rebuild so windows and linux folks can have it
-                too. if you&apos;re on a mac, go use{' '}
-                <a href={`${FARZA}/clicky`} target="_blank" rel="noopener noreferrer">clicky</a>.
+                talk is ask-and-answer: you ask, zapi explains and draws on screen. agents go
+                further — “zapi agent” takes the mouse and keyboard and completes the task for
+                you, narrating as it goes.
               </p>
             </details>
             <details>
-              <summary>do i need an account?</summary>
+              <summary>which apps does it work with?</summary>
               <p>
-                no — no sign-up, no server, no telemetry by default. download it, add your own
-                keys, done.
+                anything visible on your screen — browsers, spreadsheets, IDEs, design tools,
+                system settings. if you can see it, zapi can see it and point at it.
               </p>
             </details>
-          </Win>
-        </section>
-
-        {/* -------------------------------------------------------- credit */}
-        <section className="section">
-          <Win title="★ credit.md" icon={<TextFileIcon />} width="720px" className="credit center">
-            <p className="credit-label">credit where it&apos;s due</p>
-            <p>
-              Flicky is an independent, cross-platform reimagining of{' '}
-              <a href={CLICKY} target="_blank" rel="noopener noreferrer">Clicky</a>{' '}
-              by{' '}
-              <a href={FARZA} target="_blank" rel="noopener noreferrer">Farza</a>{' '}
-              — the original macOS app that invented the hold-a-hotkey, get-a-pointing-cursor
-              interaction. Every bit of that vibe is his. Flicky rebuilds the same idea in
-              Electron so people on Windows and Linux can try it too.
-            </p>
-            <p>
-              If you liked Flicky, also go star{' '}
-              <a href={`${FARZA}/clicky`} target="_blank" rel="noopener noreferrer">
-                farzaa/clicky
-              </a>.
-            </p>
+            <details>
+              <summary>windows only?</summary>
+              <p>
+                windows only for now — that’s where the hotkey, overlay drawing, dictation and
+                agent control are built and tested. mac and linux come later.
+              </p>
+            </details>
           </Win>
         </section>
 
@@ -378,15 +370,13 @@ export default function Page() {
           <div className="foot-links">
             <a href={REPO} target="_blank" rel="noopener noreferrer">GitHub</a>
             <a href={`${REPO}/releases`} target="_blank" rel="noopener noreferrer">Releases</a>
-            <a href={`${REPO}/issues`} target="_blank" rel="noopener noreferrer">Issues</a>
+            <a href="#pricing">Pricing</a>
+            <a href="#faq">FAQ</a>
+            <a href="/changelog">Changelog</a>
+            <a href="/privacy">Privacy</a>
+            <a href="/careers">Careers</a>
           </div>
-          <div className="foot-note">
-            made by{' '}
-            <a href={JULIO} target="_blank" rel="noopener noreferrer">Julio</a>
-            {' · '}inspired by{' '}
-            <a href={FARZA} target="_blank" rel="noopener noreferrer">Farza</a>
-            &apos;s clicky · mit licensed
-          </div>
+          <div className="foot-note">ZAPI · built for windows</div>
           <div className="kao" aria-hidden="true">( ˶ˆ ᗜ ˆ˵ )</div>
         </footer>
       </main>

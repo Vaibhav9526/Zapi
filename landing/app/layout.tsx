@@ -1,38 +1,24 @@
 import type { Metadata, Viewport } from 'next';
-import { Inter, Space_Grotesk, JetBrains_Mono } from 'next/font/google';
 import { FlickyCursor } from './components/FlickyCursor';
 import './globals.css';
 
-const inter = Inter({
-  subsets: ['latin'],
-  display: 'swap',
-  variable: '--font-sans',
-});
-
-const display = Space_Grotesk({
-  subsets: ['latin'],
-  display: 'swap',
-  weight: ['500', '600', '700'],
-  variable: '--font-display',
-});
-
-const mono = JetBrains_Mono({
-  subsets: ['latin'],
-  display: 'swap',
-  variable: '--font-mono',
-});
-
 export const metadata: Metadata = {
-  title: 'flicky — an ai buddy that lives on your desktop',
+  title: 'zapi — an ai buddy that lives on your pc',
   description:
-    'Hold a hotkey, talk, and a little blue cursor flies across your screen to point at what Flicky is talking about. Open source, cross-platform, bring your own keys.',
+    'Press the hotkey and Zapi sees what you see; ask out loud and it draws the answer right on your screen, or say "zapi agent" and it does the task for you. Windows · free.',
   icons: { icon: '/favicon.svg' },
   openGraph: {
-    title: 'Flicky',
+    title: 'ZAPI — an ai buddy that lives on your pc',
     description:
-      'Hold a hotkey. Talk. A little blue cursor flies to whatever Flicky is pointing at.',
+      'press the hotkey, zapi sees your screen, draws the answer, or does the task',
     url: 'https://github.com/pango07/flicky',
     type: 'website',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'ZAPI — an ai buddy that lives on your pc',
+    description:
+      'press the hotkey, zapi sees your screen, draws the answer, or does the task',
   },
 };
 
@@ -44,16 +30,11 @@ export const viewport: Viewport = {
 };
 
 /* Runs before first paint so the right palette is on <html> immediately. */
-const themeScript = `(function(){try{var t=localStorage.getItem('flicky-theme');if(t!=='light'&&t!=='dark'){t=window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}document.documentElement.setAttribute('data-theme',t);}catch(e){document.documentElement.setAttribute('data-theme','light');}})();`;
+const themeScript = `(function(){try{var t=localStorage.getItem('zapi-theme')||localStorage.getItem('flicky-theme');if(t!=='light'&&t!=='dark'){t=window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}document.documentElement.setAttribute('data-theme',t);}catch(e){document.documentElement.setAttribute('data-theme','light');}})();`;
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html
-      lang="en"
-      data-theme="light"
-      suppressHydrationWarning
-      className={`${inter.variable} ${display.variable} ${mono.variable}`}
-    >
+    <html lang="en" data-theme="light" suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>

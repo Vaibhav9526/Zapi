@@ -20,7 +20,7 @@ import { writeFileAtomic } from './fs-util';
  * The blobs are persisted in a JSON file in the app's userData directory.
  */
 
-const KEY_NAMES = ['anthropic', 'openai', 'elevenlabs', 'groq'] as const;
+const KEY_NAMES = ['anthropic', 'openai', 'elevenlabs', 'fishaudio', 'groq'] as const;
 export type NamedApiKey = (typeof KEY_NAMES)[number];
 export type ApiKeyName = NamedApiKey | string;
 
@@ -32,7 +32,7 @@ interface KeyFile {
 }
 
 function getKeyFilePath(): string {
-  return path.join(app.getPath('userData'), 'flicky-keys.json');
+  return path.join(app.getPath('userData'), 'zapi-keys.json');
 }
 
 function readKeyFile(): KeyFile {
@@ -52,6 +52,9 @@ export function isEncryptionAvailable(): boolean {
   return safeStorage.isEncryptionAvailable();
 }
 
+/** One warn per run — a headless/no-credential-store host writes every key unencrypted. */
+let plaintextWarned = false;
+
 export function setApiKey(name: ApiKeyName, plaintext: string): void {
   const data = readKeyFile();
 
@@ -61,9 +64,22 @@ export function setApiKey(name: ApiKeyName, plaintext: string): void {
     return;
   }
 
-  data.encryptedKeys[name] = safeStorage.isEncryptionAvailable()
-    ? `${ENC_PREFIX}${safeStorage.encryptString(plaintext).toString('base64')}`
-    : `${PLAIN_PREFIX}${Buffer.from(plaintext).toString('base64')}`;
+  if (safeStorage.isEncryptionAvailable()) {
+    data.encryptedKeys[name] = `${ENC_PREFIX}${safeStorage.encryptString(plaintext).toString('base64')}`;
+  } else {
+    // Degrade, don't refuse — a VM/headless box with no DPAPI/secret
+    // service still needs keys to work. The 'plain:' tag keeps the
+    // format unambiguous on read, and the warn makes it diagnosable
+    // instead of silently pretending the key is encrypted at rest.
+    if (!plaintextWarned) {
+      plaintextWarned = true;
+      console.warn(
+        '[Zapi] OS credential store unavailable — API keys are being ' +
+        'stored unencrypted (tagged "plain:") in zapi-keys.json',
+      );
+    }
+    data.encryptedKeys[name] = `${PLAIN_PREFIX}${Buffer.from(plaintext).toString('base64')}`;
+  }
   writeKeyFile(data);
 }
 
@@ -116,10 +132,9 @@ export function deleteApiKey(name: ApiKeyName): void {
 }
 
 export function getKeyStatus(): Record<NamedApiKey, boolean> {
-  return {
-    anthropic: hasApiKey('anthropic'),
-    openai: hasApiKey('openai'),
-    elevenlabs: hasApiKey('elevenlabs'),
-    groq: hasApiKey('groq'),
-  };
+  // Loop KEY_NAMES instead of a literal so adding a provider can't
+  // leave the status map silently missing a field.
+  const status = {} as Record<NamedApiKey, boolean>;
+  for (const name of KEY_NAMES) status[name] = hasApiKey(name);
+  return status;
 }

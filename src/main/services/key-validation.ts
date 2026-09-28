@@ -1,5 +1,7 @@
 import type { ApiKeyName, ApiKeyValidation } from '../../shared/types';
 import { getApiKey } from './key-store';
+import { normalizeBase, resolveModelId } from './ollama-api';
+import * as settingsStore from './settings-store';
 
 /**
  * Prove a key is accepted by its provider before we rely on it.
@@ -36,20 +38,40 @@ const PROBES: Record<ApiKeyName, (key: string) => Probe> = {
       messages: [{ role: 'user', content: 'hi' }],
     }),
   }),
-  openai: (key) => ({
-    url: 'https://api.openai.com/v1/chat/completions',
-    method: 'POST',
-    headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: 'gpt-4o-mini',
-      max_tokens: 1,
-      messages: [{ role: 'user', content: 'hi' }],
-    }),
-  }),
+  openai: (key) => {
+    // A custom base URL (ClinePass/proxy) changes where the key lives —
+    // validate against the same endpoint the chat path resolves. Model
+    // id follows the same rule: provider-prefixed on custom endpoints,
+    // bare against api.openai.com.
+    const base = settingsStore.get('openAIBaseUrl');
+    return {
+      url: base
+        ? `${normalizeBase(base)}/v1/chat/completions`
+        : 'https://api.openai.com/v1/chat/completions',
+      method: 'POST',
+      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: resolveModelId('gpt-4o-mini', base),
+        max_tokens: 1,
+        messages: [{ role: 'user', content: 'hi' }],
+      }),
+    };
+  },
   elevenlabs: (key) => ({
     url: 'https://api.elevenlabs.io/v1/user',
     method: 'GET',
     headers: { 'xi-api-key': key },
+  }),
+  fishaudio: (key) => ({
+    // No whoami endpoint exists, so we run the cheapest real call —
+    // a one-word synthesis round-trip also proves the key can bill.
+    url: 'https://api.fish.audio/v1/tts',
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${key}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ text: 'hi', format: 'mp3' }),
   }),
   groq: (key) => ({
     url: 'https://api.groq.com/openai/v1/models',
@@ -92,6 +114,17 @@ export async function validateApiKey(name: ApiKeyName, key: string): Promise<Api
 
     if (res.status === 401 || res.status === 403) {
       return { ok: false, error: 'The provider rejected this key. Double-check it was copied in full.' };
+    }
+    // Fish Audio has no whoami endpoint, so the probe fires a real TTS
+    // call — which can 4xx on request-shape details (missing voice
+    // reference, model gating) that say nothing about the key. Auth was
+    // already accepted by the time the body gets rejected, so count
+    // remaining 4xx as "key works" with a caveat.
+    if (name === 'fishaudio' && res.status >= 400 && res.status < 500) {
+      return {
+        ok: true,
+        error: `Key accepted, but the test request returned HTTP ${res.status}${detail ? `: ${detail}` : ''}`,
+      };
     }
     if (res.status === 429) {
       // Rate-limit vs. out-of-quota both come back as 429 from OpenAI;

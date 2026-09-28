@@ -14,9 +14,9 @@ export function initAnalytics(apiKey: string, host: string): void {
   if (!apiKey) return;
   void import('posthog-node').then(({ PostHog }) => {
     client = new PostHog(apiKey, { host });
-    distinctId = `flicky-${Date.now()}`;
+    distinctId = `zapi-${Date.now()}`;
   }).catch((err) => {
-    console.error('[Flicky] analytics init failed:', err);
+    console.error('[Zapi] analytics init failed:', err);
   });
 }
 
@@ -59,6 +59,16 @@ export const trackAiResponseReceived = (response: string) =>
   capture('ai_response_received', { response, char_count: response.length });
 export const trackElementPointed = (label: string) =>
   capture('element_pointed', { element_label: label });
+export const trackSceneDrawn = (cueKinds: string[]) =>
+  capture('scene_drawn', { cue_kinds: cueKinds, cue_count: cueKinds.length });
+export const trackDictationUtterance = (chars: number) =>
+  capture('dictation_utterance', { char_count: chars });
+export const trackAlwaysOnUtterance = () => capture('always_on_utterance');
+
+// ── Agent Mode ─────────────────────────────────────────────────────────
+
+export const trackAgentRun = (steps: number, ok: boolean) =>
+  capture('agent_run', { steps, ok });
 
 // ── Errors ─────────────────────────────────────────────────────────────
 

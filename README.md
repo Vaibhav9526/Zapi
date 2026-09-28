@@ -1,32 +1,38 @@
-# Flicky
+# ZAPI
 
-A voice-driven, screen-aware AI companion that lives in the corner of your screen. Hold a hotkey, talk to it, and a little blue cursor flies across your display to point at whatever it's referring to.
+A screen-aware AI companion for **Windows**. Hold a hotkey and talk — Zapi sees your screen, answers out loud, draws arrows / circles / highlights right on your display to point things out, and can take the wheel and drive your mouse + keyboard when you ask it to.
 
-> **Inspired by [Clicky](https://www.clicky.so/)** by [Farza](https://github.com/farzaa) ([github.com/farzaa/clicky](https://github.com/farzaa/clicky)).
-> Clicky is the original idea — a macOS-only Swift app. Flicky is an independent reimagining built from scratch in Electron so the same experience can run on **Windows, macOS, and Linux**. All credit for the original concept, the pointing-cursor interaction, and the "vibe" goes to Farza. If you're on a Mac, go check out the original — it's great.
+> **Inspired by [Clicky](https://www.clicky.so/)** by [Farza](https://github.com/farzaa) ([github.com/farzaa/clicky](https://github.com/farzaa/clicky)), and forked from **[Flicky](https://github.com/jvaught01/flicky)**.
+> Clicky is the original idea — a macOS-only Swift app. Flicky reimagined it in Electron; ZAPI continues that lineage as a **Windows-first** companion. All credit for the original concept, the pointing-cursor interaction, and the "vibe" goes to Farza. If you're on a Mac, go check out the original — it's great.
 
 ---
 
-## What Flicky adds on top of the original idea
+## What ZAPI does
 
-- **Cross-platform** — Windows, macOS, and Linux from a single Electron codebase.
-- **A second reasoning provider** — pick between **Anthropic Claude** (Opus / Sonnet 4.6) and **OpenAI** (GPT-5, GPT-5 mini, GPT-4o) on the fly.
-- **More ElevenLabs voices** — full voice catalog, plus per-voice speed and stability sliders.
-- **Local chat history** — every conversation is stored on your machine, browsable from the panel, never uploaded.
-- **Long-running context management** — auto-compacts older messages into a summary near a configurable token budget so a single conversation can run forever without blowing up the context window.
-- **Customizable push-to-talk shortcut** — capture any key combination from the UI; the global shortcut re-registers live.
-- **Three transcription options** — Groq Whisper Large v3 / v3 Turbo with one-click switching.
-- **Multiple reasoning depths** — off / low / medium / high "extended thinking" toggle.
-- **Multi-display aware overlay** — the blue cursor follows your real mouse across monitors.
+- **Talk** — push-to-talk or always-on listening (a local VAD in the overlay segments utterances, so you can just start speaking).
+- **Dictation mode** — transcribed speech is typed into whatever field is focused instead of being sent to the model.
+- **Draws on your screen** — responses can carry an ordered scene of cues: the companion cursor points at UI elements, and the overlay sketches arrows, circles, boxes, highlights, freehand paths, and handwritten labels over your real desktop.
+- **Agent computer control** — turns starting with the agent trigger ("zapi agent", "hey agent") run a screenshot→act loop that clicks, types, scrolls, and drags on your behalf, with a live step counter and a stop switch in the stream window.
+- **Multiple agents** — create named agents, each with its own face, color, chat history, and scheduled routines. Say "zapi agent scout: check the build" and the request lands on Scout's card instead of the default one. Only one agent drives the mouse at a time; the others queue up visibly instead of fighting over the cursor.
+- **File deliverables** — when an agent produces something worth keeping (a sheet, a note, a script), it hands it over as a file in your ZAPI data folder — one folder per agent — rather than pasting a wall of text into chat.
+- **Mind** — pick **Anthropic Claude** (Opus / Sonnet 4.6) or **OpenAI** (GPT-5, GPT-5 mini, GPT-4o, or a custom model id) on the fly; local OpenAI-compatible endpoints (Ollama) work too.
+- **Voice** — **Fish Audio** or **ElevenLabs** text-to-speech, with per-voice speed and stability sliders.
+- **Ear** — **Groq** Whisper Large v3 / v3 Turbo or **OpenAI** transcription.
+- **Stream window** — a transparent, always-on-top mirror of the live Q/A with the scene cue rail and agent status.
+- **Long-running context** — local chat history plus auto-compaction into a rolling summary near a configurable token budget, so one conversation can run forever.
 - **Provider key management** — separate, encrypted local storage for each provider's API key with one-click validation.
 
-The core loop — hold the hotkey, ask anything, see the blue cursor point — is faithful to Farza's original.
+---
+
+## New to ZAPI?
+
+**Start here → [docs/QUICKSTART.md](docs/QUICKSTART.md)** — a plain-language first-run guide for Windows: where the tray icon is, which keys to add, the three ways to talk to it (talk / dictation / agent), hotkeys, named agents, routines, and where the files it produces land. Includes a demo you can run with no API keys at all.
 
 ---
 
 ## Running locally
 
-Requires [Bun](https://bun.sh) (or npm) and Node 20+.
+Requires [Bun](https://bun.sh) (or npm) and Node 20+. Windows is the supported platform.
 
 ```bash
 bun install
@@ -44,8 +50,6 @@ bun run start
 ```bash
 bun run package          # current platform
 bun run package:win      # Windows .exe (NSIS)
-bun run package:mac      # macOS .dmg + .zip (universal)
-bun run package:linux    # AppImage + .deb
 ```
 
 Releases are also produced automatically by GitHub Actions on every `v*` tag — see [`.github/workflows/build.yml`](.github/workflows/build.yml).
@@ -54,9 +58,9 @@ Releases are also produced automatically by GitHub Actions on every `v*` tag —
 
 You'll need API keys for the providers you want to use:
 
-- **Anthropic** or **OpenAI** — reasoning
-- **ElevenLabs** — text-to-speech
-- **Groq** — speech-to-text
+- **Anthropic** or **OpenAI** — mind (reasoning)
+- **Fish Audio** or **ElevenLabs** — voice (text-to-speech)
+- **Groq** or **OpenAI** — ear (speech-to-text)
 
 Add them in the panel under **Mind**, **Voice**, and **Ear**. Keys are stored locally with platform-appropriate encryption — they never leave your machine except in API calls to the relevant provider.
 
@@ -64,4 +68,4 @@ Add them in the panel under **Mind**, **Voice**, and **Ear**. Keys are stored lo
 
 MIT — see [LICENSE](LICENSE).
 
-The original Clicky project is the intellectual seed for this work; Flicky is an independent implementation and does not bundle or redistribute Clicky's source. If you like what's here, please also star [Farza's repo](https://github.com/farzaa/clicky).
+The original Clicky project is the intellectual seed for this work; ZAPI descends from it through Flicky and is an independent implementation that does not bundle or redistribute Clicky's source. If you like what's here, please also star [Farza's repo](https://github.com/farzaa/clicky).

@@ -4,7 +4,8 @@ import { useEffect, useState } from 'react';
 
 type Theme = 'light' | 'dark';
 
-const KEY = 'flicky-theme';
+const KEY = 'zapi-theme';
+const LEGACY_KEY = 'flicky-theme';
 
 function current(): Theme {
   if (typeof document === 'undefined') return 'light';
@@ -29,7 +30,7 @@ export function ThemeToggle() {
     const onSystem = () => {
       let stored: string | null = null;
       try {
-        stored = localStorage.getItem(KEY);
+        stored = localStorage.getItem(KEY) ?? localStorage.getItem(LEGACY_KEY);
       } catch {
         /* storage blocked — treat as "no explicit choice" */
       }

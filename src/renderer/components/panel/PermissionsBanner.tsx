@@ -15,19 +15,19 @@ const ROWS: Row[] = [
   {
     kind: 'microphone',
     label: 'Microphone',
-    reason: 'so Flicky can hear you when you push to talk',
+    reason: 'so zapi can hear you when you push to talk',
     platforms: ['darwin', 'win32'],
   },
   {
     kind: 'screen',
     label: 'Screen Recording',
-    reason: 'so Flicky can see your screen and point at things',
+    reason: 'so zapi can see your screen and point at things',
     platforms: ['darwin'],
   },
   {
     kind: 'accessibility',
     label: 'Accessibility',
-    reason: 'so Flicky can type into the focused field for you',
+    reason: 'so zapi can type into the focused field for you',
     platforms: ['darwin'],
     // Only nag the user about this one when they've actually turned
     // on auto-typing. Keeps the banner quiet for users who never
@@ -71,11 +71,11 @@ export function PermissionsBanner() {
   return (
     <div className="perm-banner">
       <div className="perm-banner-head">
-        <span className="perm-banner-title">Flicky needs a permission</span>
+        <span className="perm-banner-title">zapi needs a permission</span>
         <span className="perm-banner-sub">
           {isWin
             ? 'Windows blocks desktop apps from the microphone until you allow it under Settings → Privacy & security → Microphone.'
-            : 'macOS controls access per-app. Without these, Flicky can’t hear you, see your screen, or type for you.'}
+            : 'macOS controls access per-app. Without these, zapi can’t hear you, see your screen, or type for you.'}
         </span>
       </div>
       <div className="perm-banner-rows">

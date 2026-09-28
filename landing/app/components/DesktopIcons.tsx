@@ -13,7 +13,7 @@ export function DesktopIcons() {
     <div className="desk-icons" aria-hidden="false">
       <a className="desk-icon" href="#top">
         <span className="desk-art"><Mark className="desk-mark" /></span>
-        <span className="desk-label">flicky.exe</span>
+        <span className="desk-label">zapi.exe</span>
       </a>
       <a className="desk-icon" href="#how">
         <span className="desk-art"><FolderIcon /></span>
@@ -23,9 +23,13 @@ export function DesktopIcons() {
         <span className="desk-art"><FolderIcon /></span>
         <span className="desk-label">features</span>
       </a>
+      <a className="desk-icon" href="#pricing">
+        <span className="desk-art"><InstallerIcon /></span>
+        <span className="desk-label">pricing</span>
+      </a>
       <a className="desk-icon" href="#get">
         <span className="desk-art"><InstallerIcon /></span>
-        <span className="desk-label">get flicky</span>
+        <span className="desk-label">get zapi</span>
       </a>
       <a className="desk-icon" href="#faq">
         <span className="desk-art"><TextFileIcon /></span>

@@ -16,7 +16,38 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Fast gate that runs BEFORE any packaging. Single platform on purpose:
+  # it's a correctness gate, not a build matrix, and failing it should
+  # cost seconds rather than three parallel runners.
+  #
+  # dev-verify.mts discovers scripts/*-smoke.mts, scripts/*-check.mts and
+  # scene-pipeline.mts, runs the electron-dependent ones through
+  # `bun --preload ./scripts/store-preload.ts` (so no electron binary is
+  # needed), typechecks both tsconfigs, and exits 1 on any FAIL. The
+  # `npm run lint` step inside it is report-only. No electron-builder here
+  # and no secrets required, so PRs from forks run it fine.
+  verify:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      # `bun scripts/dev-verify.mts` works too (bun runs .mts natively);
+      # bunx tsx is used here so the child steps share the same loader.
+      - name: Verify (typecheck + smoke/check scripts)
+        run: bunx tsx scripts/dev-verify.mts
+
   build:
+    # Packaging only starts once the verify gate is green.
+    needs: verify
+
     strategy:
       fail-fast: false
       matrix:
@@ -94,7 +125,7 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: flicky-${{ matrix.platform }}
+          name: ZAPI-${{ matrix.platform }}-setup
           if-no-files-found: ignore
           path: |
             release/*.dmg

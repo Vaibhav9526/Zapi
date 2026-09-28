@@ -40,6 +40,7 @@ html, body, #root {
 
 .stream-head .btn {
   -webkit-app-region: no-drag;
+  flex-shrink: 0; /* three buttons + title — never squash the labels */
   background: transparent;
   border: 1px solid rgba(255, 255, 255, 0.08);
   color: rgba(231, 231, 234, 0.7);
@@ -53,6 +54,12 @@ html, body, #root {
 .stream-head .btn:hover {
   background: rgba(255, 255, 255, 0.08);
   color: #fff;
+}
+
+/* Brief green flash confirming a transcript copy landed. */
+.stream-head .btn.copied {
+  color: #86efac;
+  border-color: rgba(134, 239, 172, 0.4);
 }
 
 .stream-body {
@@ -122,8 +129,10 @@ html, body, #root {
   to { visibility: hidden; }
 }
 
-/* ── Walkthrough card ───────────────────────────────────────────── */
-.walkthrough-card {
+/* ── Scene cue rail ─────────────────────────────────────────────── */
+/* Same visual language as the old walkthrough card: a scene is the
+   generalized form — its cues may be point steps or drawn strokes. */
+.scene-card {
   margin: 4px 0 14px;
   padding: 12px 14px 10px;
   background: rgba(37, 99, 235, 0.10);
@@ -131,24 +140,24 @@ html, body, #root {
   border-radius: 12px;
   box-shadow: 0 8px 22px rgba(29, 78, 216, 0.18);
 }
-.walkthrough-head {
+.scene-head {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   margin-bottom: 8px;
 }
-.walkthrough-title {
+.scene-title {
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.7px;
   text-transform: uppercase;
   color: #cfe5ff;
 }
-.walkthrough-progress {
+.scene-progress {
   font-size: 11px;
   color: rgba(207, 229, 255, 0.65);
 }
-.walkthrough-steps {
+.scene-steps {
   list-style: none;
   margin: 0;
   padding: 0;
@@ -156,7 +165,7 @@ html, body, #root {
   flex-direction: column;
   gap: 4px;
 }
-.walkthrough-step {
+.scene-step {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -164,17 +173,17 @@ html, body, #root {
   border-radius: 9px;
   transition: background 0.18s ease, opacity 0.18s ease, transform 0.18s ease;
 }
-.walkthrough-step.pending { opacity: 0.55; }
-.walkthrough-step.done {
+.scene-step.pending { opacity: 0.55; }
+.scene-step.done {
   opacity: 0.7;
   background: rgba(255, 255, 255, 0.04);
 }
-.walkthrough-step.active {
+.scene-step.active {
   background: rgba(59, 130, 246, 0.22);
   box-shadow: inset 0 0 0 1px rgba(125, 211, 252, 0.55);
   transform: translateX(2px);
 }
-.walkthrough-num {
+.scene-num {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -187,20 +196,393 @@ html, body, #root {
   color: #fff;
   flex-shrink: 0;
 }
-.walkthrough-step.done .walkthrough-num {
+/* Draw-kind cues carry a glyph instead of a step number. */
+.scene-glyph {
+  font-size: 13px;
+  font-weight: 500;
+}
+.scene-step.done .scene-num {
   background: rgba(142, 189, 154, 0.35);
   color: #d6f0dd;
 }
-.walkthrough-step.active .walkthrough-num {
+.scene-step.active .scene-num {
   background: #2563eb;
   box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.3);
 }
-.walkthrough-label {
+.scene-label {
   font-size: 13px;
   color: #e7e7ea;
   line-height: 1.35;
 }
-.walkthrough-step.done .walkthrough-label {
+.scene-step.done .scene-label {
   text-decoration: line-through;
   text-decoration-color: rgba(255, 255, 255, 0.25);
+}
+
+/* ── Agent status bar ───────────────────────────────────────────── */
+/* Pinned between the drag head and the scrollable body so it stays
+   visible while the agent loop runs. */
+.agent-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(59, 130, 246, 0.14);
+  font-size: 11px;
+  color: rgba(231, 231, 234, 0.85);
+}
+.agent-status-text {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-stop {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: rgba(231, 231, 234, 0.8);
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.agent-stop:hover {
+  background: rgba(239, 68, 68, 0.28);
+  border-color: rgba(239, 68, 68, 0.5);
+  color: #fff;
+}
+
+/* ── Agent action feed ──────────────────────────────────────────── */
+/* Compact log of executed actions, capped at 12 entries in JS and
+   height-capped here so long runs scroll instead of eating the body. */
+.agent-feed {
+  max-height: 120px;
+  overflow-y: auto;
+  padding: 5px 12px 7px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.02);
+  font-size: 11px;
+  color: rgba(231, 231, 234, 0.7);
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+}
+.agent-feed::-webkit-scrollbar { width: 6px; }
+.agent-feed::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.14);
+  border-radius: 3px;
+}
+.agent-feed-row {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  padding: 1px 0;
+}
+.agent-feed-glyph {
+  width: 14px;
+  text-align: center;
+  color: #7dd3fc;
+  flex-shrink: 0;
+}
+/* Which agent produced the row. Echoes carry no agentId, so this is the
+   agent that was acting when the echo landed — enough to tell two
+   concurrent runs apart without re-plumbing the IPC payload. */
+.agent-feed-agent {
+  flex-shrink: 0;
+  max-width: 84px;
+  padding: 0 5px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 4px;
+  color: rgba(255, 255, 255, 0.66);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1.5;
+  text-transform: lowercase;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-feed-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Transient notices (error line + type chip) ─────────────────── */
+/* Same pinned-strip slot as .agent-status: between head and body so it
+   can't scroll away, auto-dismissed from JS after a few seconds. */
+.stream-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-bottom: 1px solid rgba(239, 68, 68, 0.25);
+  background: rgba(239, 68, 68, 0.14);
+  font-size: 11px;
+  color: #f0b4b4;
+}
+.stream-error-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.stream-error-x {
+  background: transparent;
+  border: none;
+  padding: 0 4px;
+  color: rgba(240, 180, 180, 0.7);
+  font-size: 13px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.stream-error-x:hover { color: #fff; }
+
+.stream-typechip {
+  align-self: flex-start;
+  margin: 6px 12px 0;
+  padding: 3px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  font-size: 10.5px;
+  font-weight: 600;
+  color: rgba(231, 231, 234, 0.8);
+  flex-shrink: 0;
+}
+
+/* ── Suggestions strip ──────────────────────────────────────────── */
+/* Same pinned-strip slot as .agent-status (between head and body).
+   The strip is one horizontally scrolling row of compact cards so a
+   long suggestion list never eats the transcript. */
+.suggest-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.03);
+  font-size: 11px;
+}
+.suggest-label {
+  flex-shrink: 0;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.7px;
+  text-transform: uppercase;
+  color: rgba(231, 231, 234, 0.45);
+}
+.suggest-cards {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+}
+.suggest-cards::-webkit-scrollbar { height: 4px; }
+.suggest-cards::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.14);
+  border-radius: 2px;
+}
+.suggest-card {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  max-width: 240px;
+  padding: 3px 4px 3px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(231, 231, 234, 0.85);
+}
+.suggest-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+}
+/* Same pill style as .agent-feed-agent so the surfaces read as one language. */
+.suggest-agent {
+  flex-shrink: 0;
+  padding: 0 5px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 4px;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1.5;
+  text-transform: lowercase;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 84px;
+}
+.suggest-run {
+  flex-shrink: 0;
+  background: rgba(125, 211, 252, 0.14);
+  border: 1px solid rgba(125, 211, 252, 0.3);
+  border-radius: 5px;
+  color: #7dd3fc;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 7px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.suggest-run:hover {
+  background: rgba(125, 211, 252, 0.3);
+  color: #fff;
+}
+.suggest-x,
+.suggest-refresh {
+  flex-shrink: 0;
+  background: transparent;
+  border: none;
+  padding: 0 3px;
+  color: rgba(231, 231, 234, 0.45);
+  font-size: 13px;
+  cursor: pointer;
+}
+.suggest-x:hover,
+.suggest-refresh:hover { color: #fff; }
+
+/* ── Per-turn artifact pile ─────────────────────────────────────── */
+/* Small file chips under the assistant text of the turn that produced
+   them; click opens the file via the OS default handler. */
+.artifact-pile {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 6px;
+}
+.artifact-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  padding: 3px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(231, 231, 234, 0.85);
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.artifact-chip:hover {
+  background: rgba(255, 255, 255, 0.11);
+  border-color: rgba(125, 211, 252, 0.4);
+}
+.artifact-icon {
+  color: #7dd3fc;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+.artifact-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   Glass pass — deepen the rail's frost and give pinned strips, agent
+   chips, and suggestion cards the same translucent material as the
+   panel (rgba glass + blur + soft layered shadow). Accent stays the
+   rail's cyan for semantic text; the run affordance picks up the
+   product violet (#7b4dff).
+   ══════════════════════════════════════════════════════════════════ */
+
+.stream-root {
+  background: rgba(16, 18, 26, 0.6);
+  backdrop-filter: blur(28px) saturate(170%);
+  -webkit-backdrop-filter: blur(28px) saturate(170%);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 16px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+}
+
+/* ── Pinned strips (head / status / feed / notices / strip) ─────── */
+.stream-head,
+.agent-status,
+.agent-feed,
+.suggest-strip {
+  background: rgba(255, 255, 255, 0.035);
+  border-color: rgba(255, 255, 255, 0.07);
+}
+.agent-status {
+  background: rgba(59, 130, 246, 0.12);
+  backdrop-filter: blur(14px) saturate(150%);
+  -webkit-backdrop-filter: blur(14px) saturate(150%);
+}
+.stream-head .btn {
+  border-color: rgba(255, 255, 255, 0.09);
+  transition: background 0.15s ease, color 0.15s ease, transform 0.18s ease-out;
+}
+.stream-head .btn:hover { transform: translateY(-1px); }
+
+/* ── Scene cue card: keep the blue tint, gain the glass shadow ──── */
+.scene-card {
+  background: rgba(37, 99, 235, 0.12);
+  border-color: rgba(125, 211, 252, 0.4);
+  backdrop-filter: blur(16px) saturate(150%);
+  -webkit-backdrop-filter: blur(16px) saturate(150%);
+  box-shadow: 0 8px 24px rgba(29, 78, 216, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+.scene-step.done { background: rgba(255, 255, 255, 0.045); }
+
+/* ── Agent rows → glass chips ───────────────────────────────────── */
+.agent-feed-agent,
+.suggest-agent,
+.stream-typechip {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.11);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+.stream-typechip { border-radius: 999px; }
+
+/* ── Suggestions strip → frosted cards + lift ───────────────────── */
+.suggest-card {
+  background: rgba(24, 26, 34, 0.55);
+  border-color: rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  backdrop-filter: blur(16px) saturate(150%);
+  -webkit-backdrop-filter: blur(16px) saturate(150%);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  transition: transform 0.18s ease-out, box-shadow 0.18s ease-out, border-color 0.15s ease;
+}
+.suggest-card:hover {
+  transform: translateY(-1px);
+  border-color: rgba(255, 255, 255, 0.16);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+.suggest-run {
+  background: rgba(123, 77, 255, 0.2);
+  border-color: rgba(123, 77, 255, 0.45);
+  color: #d3c2ff;
+}
+.suggest-run:hover {
+  background: rgba(123, 77, 255, 0.38);
+  color: #fff;
+}
+
+/* ── Artifact chips → glass chips with a lift ───────────────────── */
+.artifact-chip {
+  background: rgba(255, 255, 255, 0.055);
+  border-color: rgba(255, 255, 255, 0.11);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  transition: background 0.15s ease, border-color 0.15s ease,
+    transform 0.18s ease-out, box-shadow 0.18s ease-out;
+}
+.artifact-chip:hover {
+  transform: translateY(-1px);
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(125, 211, 252, 0.45);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
 }

@@ -6,12 +6,16 @@ import type {
   ReplyTone,
 } from '../../shared/types';
 import { getApiKey } from './key-store';
+import { isReasoningCapableModel, normalizeBase, resolveModelId } from './ollama-api';
 import { buildSystemPrompt } from './prompts';
 
 const OPENAI_API_URL = 'https://api.openai.com/v1/chat/completions';
 
-/** OpenAI only applies `reasoning_effort` to its reasoning-capable models. */
-const REASONING_CAPABLE: Set<OpenAIModel> = new Set<OpenAIModel>(['gpt-5', 'gpt-5-mini']);
+/** Resolve the chat-completions URL for an OpenAI-compatible endpoint (ClinePass, proxies). */
+function resolveChatUrl(baseUrl?: string): string {
+  const trimmed = (baseUrl ?? '').trim();
+  return trimmed ? `${normalizeBase(trimmed)}/v1/chat/completions` : OPENAI_API_URL;
+}
 
 const DEPTH_TO_EFFORT: Record<ReasoningDepth, 'low' | 'medium' | 'high' | null> = {
   off: null,
@@ -37,8 +41,12 @@ export interface OpenAIStreamCallbacks {
 export interface OpenAIChatOptions {
   reasoningDepth: ReasoningDepth;
   replyTone: ReplyTone;
+  /** 'agent' swaps the talk persona for the computer-control prompt. */
+  mode?: 'talk' | 'agent';
   /** Aborting mid-stream is treated as a graceful interrupt, not an error. */
   signal?: AbortSignal;
+  /** Custom OpenAI-compatible base URL ('clinepass', proxies). ''/undefined = api.openai.com. */
+  baseUrl?: string;
 }
 
 export class OpenAIAPI {
@@ -52,13 +60,16 @@ export class OpenAIAPI {
   ): Promise<void> {
     const apiKey = getApiKey('openai');
     if (!apiKey) {
-      callbacks.onError(new Error('OpenAI API key not configured. Add it in the Flicky panel.'));
+      callbacks.onError(new Error('OpenAI API key not configured. Add it in the Zapi panel.'));
       return;
     }
 
     // OpenAI path has no server-side web_search wired yet, so don't
     // claim the capability in the prompt.
-    const systemPrompt = buildSystemPrompt(options.replyTone, { hasWebSearch: false });
+    const systemPrompt = buildSystemPrompt(options.replyTone, {
+      hasWebSearch: false,
+      mode: options.mode,
+    });
 
     const messages: Array<{ role: string; content: unknown }> = [
       { role: 'system', content: systemPrompt },
@@ -85,10 +96,13 @@ export class OpenAIAPI {
     messages.push({ role: 'user', content: userContent });
 
     const effort = DEPTH_TO_EFFORT[options.reasoningDepth];
-    const usesReasoning = REASONING_CAPABLE.has(model) && effort !== null;
+    // Resolved id is what actually goes on the wire — reasoning must be
+    // judged on that form, not the settings-side bare id.
+    const modelId = resolveModelId(model, options.baseUrl);
+    const usesReasoning = isReasoningCapableModel(modelId) && effort !== null;
 
     const body: Record<string, unknown> = {
-      model,
+      model: modelId,
       messages,
       stream: true,
       stream_options: { include_usage: true },
@@ -104,8 +118,13 @@ export class OpenAIAPI {
       body.reasoning_effort = effort;
     }
 
+    const url = resolveChatUrl(options.baseUrl);
     try {
-      const response = await fetch(OPENAI_API_URL, {
+      // Host only — never the full URL or key material in logs.
+      console.log('[Zapi] openai endpoint:', new URL(url).host);
+    } catch { /* malformed custom URL — the fetch error below says enough */ }
+    try {
+      const response = await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

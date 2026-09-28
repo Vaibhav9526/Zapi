@@ -3,7 +3,7 @@
   "configVersion": 0,
   "workspaces": {
     "": {
-      "name": "flicky",
+      "name": "zapi",
       "dependencies": {
         "@nut-tree-fork/nut-js": "^4.2.6",
         "posthog-node": "^4.0.0",

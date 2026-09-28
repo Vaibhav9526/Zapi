@@ -1,11 +1,13 @@
 import { desktopCapturer, screen } from 'electron';
 import type { ScreenCapture } from '../../shared/types';
 
-// Bumped from 1280 → 1600. Higher res = more pixel precision when the
-// model reports POINT coordinates, at the cost of ~50% more image tokens
-// per turn. With cursor-only capture this stays well under the per-image
-// limits for both Anthropic and OpenAI vision models.
-const MAX_DIMENSION = 1600;
+// 1568px is Anthropic's documented cap for the long edge — anything
+// bigger gets resampled server-side, which means the model reports
+// coordinates in a downsampled space while we record the pre-resize
+// dims. Matching the cap exactly keeps model coordinate space ==
+// imageWidth/imageHeight so click math stays pixel-exact, and saves
+// ~5% of the base64 we ship every turn vs. the old 1600.
+const MAX_DIMENSION = 1568;
 const JPEG_QUALITY = 82;
 
 /**
@@ -24,7 +26,7 @@ export async function captureDisplays(
   // very first call shortly after app launch — the capture pipeline
   // hasn't warmed up yet. A single short-delayed retry reliably hands
   // back populated thumbnails without bothering the user.
-  console.warn('[Flicky] capture returned zero on first try; retrying after 300ms');
+  console.warn('[Zapi] capture returned zero on first try; retrying after 300ms');
   await new Promise((r) => setTimeout(r, 300));
   return captureOnce(opts);
 }
@@ -56,7 +58,7 @@ async function captureOnce(
       displays = onCursor;
     } else {
       console.warn(
-        '[Flicky] cursor-only filter excluded every display ' +
+        '[Zapi] cursor-only filter excluded every display ' +
         `(cursor at ${cursorPoint.x},${cursorPoint.y}, ` +
         `displays: ${allDisplays.map((d) => `${d.id}@${JSON.stringify(d.bounds)}`).join(' ')}). ` +
         'Falling back to all displays.',
@@ -80,7 +82,7 @@ async function captureOnce(
     }) ?? sources[captures.length]; // Fallback to index-based matching
 
     if (!source) {
-      console.warn(`[Flicky] no source matched display ${display.id}`);
+      console.warn(`[Zapi] no source matched display ${display.id}`);
       continue;
     }
 
@@ -105,14 +107,21 @@ async function captureOnce(
       targetHeight = Math.round(targetHeight * scale);
     }
 
-    const resized = thumbnail.resize({ width: targetWidth, height: targetHeight });
+    // 'good' resampling: the default ('none') nearest-neighbor pass
+    // muddies small UI text at these ratios, which is exactly the
+    // pixels the model reads labels from.
+    const resized = thumbnail.resize({
+      width: targetWidth,
+      height: targetHeight,
+      quality: 'good',
+    });
     const jpegBuffer = resized.toJPEG(JPEG_QUALITY);
     // Guard only against the case that actually causes Anthropic 400s:
     // a zero-byte JPEG. Earlier broader checks (`isEmpty()`, `size===0`)
     // were rejecting valid thumbnails on some macOS configurations.
     if (jpegBuffer.length === 0) {
       console.warn(
-        `[Flicky] display ${display.id}: JPEG encoded to 0 bytes ` +
+        `[Zapi] display ${display.id}: JPEG encoded to 0 bytes ` +
         `(thumbSize=${size.width}x${size.height}, target=${targetWidth}x${targetHeight}, ` +
         `scaleFactor=${scaleFactor}); skipping`,
       );
@@ -137,12 +146,17 @@ async function captureOnce(
     });
   }
 
-  // Sort so cursor screen is first (primary focus)
-  captures.sort((a, b) => (b.isCursorScreen ? 1 : 0) - (a.isCursorScreen ? 1 : 0));
+  // Sort so the cursor screen is always screen0 — the prompts and
+  // parsers both assume that contract. The displayId tiebreak pins the
+  // remaining captures to a stable order independent of the OS's
+  // enumeration order, so screenN means the same display across calls.
+  captures.sort(
+    (a, b) => Number(b.isCursorScreen) - Number(a.isCursorScreen) || a.displayId - b.displayId,
+  );
 
   if (captures.length === 0) {
     console.warn(
-      '[Flicky] captureDisplays produced zero screenshots. ' +
+      '[Zapi] captureDisplays produced zero screenshots. ' +
       `displays=${displays.length}, sources=${sources.length}, ` +
       `sourceIds=[${sources.map((s) => s.display_id || '""').join(',')}], ` +
       `displayIds=[${displays.map((d) => d.id).join(',')}]`,

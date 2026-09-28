@@ -9,7 +9,6 @@ import type {
   FlickySettings,
   VoiceState,
   TranscriptionResult,
-  Walkthrough,
   TypeRequest,
   ReasoningDepth,
   ReplyTone,
@@ -24,6 +23,16 @@ import type {
   ApiKeyValidation,
   PermissionStatus,
   DisplayInfo,
+  Scene,
+  AgentStatus,
+  AgentAction,
+  AgentProfile,
+  Routine,
+  Artifact,
+  Suggestion,
+  TtsProvider,
+  CaptureMode,
+  UsageStats,
 } from '../shared/types';
 import type { OllamaTestResult } from '../main/services/ollama-api';
 
@@ -40,7 +49,7 @@ const initialDisplayInfo: DisplayInfo | null = (() => {
   } catch (err) {
     // Falling back to null silently would reproduce the exact bug this
     // argument exists to fix, so make the failure visible.
-    console.warn('[Flicky] Could not parse display info from launch args:', err);
+    console.warn('[Zapi] Could not parse display info from launch args:', err);
     return null;
   }
 })();
@@ -67,6 +76,70 @@ const api = {
   setSpeakReplies: (enabled: boolean): void => ipcRenderer.send(IPC.SET_SPEAK_REPLIES, enabled),
 
   setGroqModel: (model: GroqTranscriptionModel): void => ipcRenderer.send(IPC.SET_GROQ_MODEL, model),
+
+  setTtsProvider: (p: TtsProvider): void => ipcRenderer.send(IPC.SET_TTS_PROVIDER, p),
+  setFishVoiceId: (id: string): void => ipcRenderer.send(IPC.SET_FISH_VOICE_ID, id),
+
+  // ── Mode switches ──────────────────────────────────────────────────
+  setAlwaysOn: (enabled: boolean): void => ipcRenderer.send(IPC.SET_ALWAYS_ON, enabled),
+  setDictation: (enabled: boolean): void => ipcRenderer.send(IPC.SET_DICTATION, enabled),
+  setDictationShortcut: (shortcut: string): void =>
+    ipcRenderer.send(IPC.SET_DICTATION_SHORTCUT, shortcut),
+  setAgentEnabled: (enabled: boolean): void => ipcRenderer.send(IPC.SET_AGENT_ENABLED, enabled),
+  setAgentMaxSteps: (n: number): void => ipcRenderer.send(IPC.SET_AGENT_MAX_STEPS, n),
+  setCustomOpenAIModel: (m: string): void => ipcRenderer.send(IPC.SET_CUSTOM_OPENAI_MODEL, m),
+  setOpenAIBaseUrl: (v: string): void => ipcRenderer.send(IPC.SET_OPENAI_BASE_URL, v),
+  /** Stop a running agent loop. */
+  agentStop: (agentId?: string): void => ipcRenderer.send(IPC.AGENT_STOP, agentId),
+
+  /** Agent profiles (multi-agent). */
+  getAgents: (): Promise<AgentProfile[]> => ipcRenderer.invoke(IPC.AGENT_LIST),
+  createAgent: (init: { name: string; kaomoji?: string; color?: string }): void =>
+    ipcRenderer.send(IPC.AGENT_CREATE, init),
+  renameAgent: (id: string, name: string): void =>
+    ipcRenderer.send(IPC.AGENT_RENAME, { id, name }),
+  archiveAgent: (id: string): void => ipcRenderer.send(IPC.AGENT_ARCHIVE, { id }),
+
+  /** Agent routines (scheduled tasks). */
+  getRoutines: (): Promise<Routine[]> => ipcRenderer.invoke(IPC.ROUTINE_LIST),
+  upsertRoutine: (routine: Omit<Routine, 'id'> | Routine): void =>
+    ipcRenderer.send(IPC.ROUTINE_UPSERT, routine),
+  deleteRoutine: (id: string): void => ipcRenderer.send(IPC.ROUTINE_DELETE, { id }),
+  setRoutinesMuted: (muted: boolean): void =>
+    ipcRenderer.send(IPC.SET_ROUTINES_MUTED, muted),
+
+  /** Agent file artifacts. */
+  getArtifacts: (agentId?: string): Promise<Artifact[]> =>
+    ipcRenderer.invoke(IPC.ARTIFACT_LIST, agentId),
+  openArtifact: (id: string): void => ipcRenderer.send(IPC.ARTIFACT_OPEN, { id }),
+  revealArtifact: (id: string): void => ipcRenderer.send(IPC.ARTIFACT_REVEAL, { id }),
+
+  /** Suggestion cards. */
+  getSuggestions: (agentId?: string): Promise<Suggestion[]> =>
+    ipcRenderer.invoke(IPC.SUGGESTION_LIST, agentId),
+  acceptSuggestion: (id: string): void => ipcRenderer.send(IPC.SUGGESTION_ACCEPT, { id }),
+  dismissSuggestion: (id: string): void => ipcRenderer.send(IPC.SUGGESTION_DISMISS, { id }),
+  refreshSuggestions: (): void => ipcRenderer.send(IPC.SUGGESTION_REFRESH),
+
+  markChatRead: (agentId: string): void => ipcRenderer.send(IPC.CHAT_MARK_READ, agentId),
+
+  /** Send a typed message to an agent (panel chat input, card follow-ups). */
+  sendTextTurn: (agentId: string, text: string): void =>
+    ipcRenderer.send(IPC.TEXT_TURN, { agentId, text }),
+
+  /** Model ids exposed by the configured OpenAI-compatible endpoint. */
+  listRemoteModels: (): Promise<string[]> => ipcRenderer.invoke(IPC.LIST_REMOTE_MODELS),
+
+  /** Open an agent's workspace folder in Explorer. */
+  openAgentWorkspace: (agentId: string): void =>
+    ipcRenderer.send(IPC.OPEN_AGENT_WORKSPACE, { agentId }),
+
+  /** Main → overlay: play a named UI sound. */
+  onPlaySfx: (cb: (name: string) => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, name: string) => cb(name);
+    ipcRenderer.on(IPC.PLAY_SFX, handler);
+    return () => ipcRenderer.removeListener(IPC.PLAY_SFX, handler);
+  },
 
   toggleCursor: (enabled: boolean): void => ipcRenderer.send(IPC.TOGGLE_CURSOR, enabled),
   setLaunchAtLogin: (enabled: boolean): void => ipcRenderer.send(IPC.SET_LAUNCH_AT_LOGIN, enabled),
@@ -134,8 +207,13 @@ const api = {
   clearContext: (): void => ipcRenderer.send(IPC.CLEAR_CONTEXT),
 
   // ── Chat history ────────────────────────────────────────────────────
-  getChatHistory: (): Promise<ChatEntry[]> => ipcRenderer.invoke(IPC.GET_CHAT_HISTORY),
-  clearChatHistory: (): void => ipcRenderer.send(IPC.CLEAR_CHAT_HISTORY),
+  getChatHistory: (agentId?: string): Promise<ChatEntry[]> =>
+    ipcRenderer.invoke(IPC.GET_CHAT_HISTORY, agentId),
+  clearChatHistory: (agentId?: string): void =>
+    ipcRenderer.send(IPC.CLEAR_CHAT_HISTORY, agentId),
+
+  // ── Usage metering ─────────────────────────────────────────────────
+  getUsageStats: (): Promise<UsageStats> => ipcRenderer.invoke(IPC.GET_USAGE_STATS),
 
   // ── Local Connections ─────────────────────────────────────────────────
   getLocalConnections: (): Promise<LocalConnection[]> =>
@@ -209,16 +287,47 @@ const api = {
     return () => ipcRenderer.removeListener(IPC.AI_RESPONSE_COMPLETE, handler);
   },
 
-  onWalkthrough: (cb: (walkthrough: Walkthrough | null) => void) => {
-    const handler = (_e: Electron.IpcRendererEvent, w: Walkthrough | null) => cb(w);
-    ipcRenderer.on(IPC.WALKTHROUGH, handler);
-    return () => ipcRenderer.removeListener(IPC.WALKTHROUGH, handler);
+  // ── Scenes (draw cues + point cues) ────────────────────────────────
+  /** Full scene: { cues } on arrival, null when cleared. */
+  onScene: (cb: (scene: Scene | null) => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, s: Scene | null) => cb(s);
+    ipcRenderer.on(IPC.SCENE, handler);
+    return () => ipcRenderer.removeListener(IPC.SCENE, handler);
   },
 
-  onWalkthroughStep: (cb: (index: number | null) => void) => {
+  /** Beat index inside the active scene, or null when it ends. */
+  onSceneCue: (cb: (index: number | null) => void) => {
     const handler = (_e: Electron.IpcRendererEvent, i: number | null) => cb(i);
-    ipcRenderer.on(IPC.WALKTHROUGH_STEP, handler);
-    return () => ipcRenderer.removeListener(IPC.WALKTHROUGH_STEP, handler);
+    ipcRenderer.on(IPC.SCENE_CUE, handler);
+    return () => ipcRenderer.removeListener(IPC.SCENE_CUE, handler);
+  },
+
+  // ── Agent mode ─────────────────────────────────────────────────────
+  onAgentStatus: (cb: (status: AgentStatus) => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, s: AgentStatus) => cb(s);
+    ipcRenderer.on(IPC.AGENT_STATUS, handler);
+    return () => ipcRenderer.removeListener(IPC.AGENT_STATUS, handler);
+  },
+
+  /**
+   * One executed agent action for visual echo.
+   * Payload: { x, y, label, kind } — display-space point + caption.
+   */
+  onAgentAction: (
+    cb: (a: {
+      x: number;
+      y: number;
+      label: string;
+      kind: AgentAction['kind'];
+      agentId?: string;
+    }) => void,
+  ) => {
+    const handler = (
+      _e: Electron.IpcRendererEvent,
+      a: { x: number; y: number; label: string; kind: AgentAction['kind']; agentId?: string },
+    ) => cb(a);
+    ipcRenderer.on(IPC.AGENT_ACTION, handler);
+    return () => ipcRenderer.removeListener(IPC.AGENT_ACTION, handler);
   },
 
   onTypeFulfilled: (cb: (req: TypeRequest) => void) => {
@@ -227,8 +336,14 @@ const api = {
     return () => ipcRenderer.removeListener(IPC.TYPE_FULFILLED, handler);
   },
 
-  onCursorPosition: (cb: (pos: { x: number; y: number }) => void) => {
-    const handler = (_e: Electron.IpcRendererEvent, pos: { x: number; y: number }) => cb(pos);
+  /**
+   * Cursor position from main. Main additionally sends `{ off: true }`
+   * pulses (with sentinel coords) to the overlay that just lost the cursor
+   * on multi-display setups — the optional flag is part of the contract so
+   * consumers don't need a cast to read it.
+   */
+  onCursorPosition: (cb: (pos: { x: number; y: number; off?: boolean }) => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, pos: { x: number; y: number; off?: boolean }) => cb(pos);
     ipcRenderer.on(IPC.CURSOR_POSITION, handler);
     return () => ipcRenderer.removeListener(IPC.CURSOR_POSITION, handler);
   },
@@ -271,8 +386,14 @@ const api = {
     return () => ipcRenderer.removeListener('display-info', handler);
   },
 
-  onStartCapture: (cb: () => void) => {
-    const handler = () => cb();
+  /**
+   * Main → overlay: open the mic gate. Payload carries the capture mode:
+   * 'ptt' streams chunks to main live; 'vad' runs the overlay-side VAD
+   * and ships each finished utterance via sendVadUtterance.
+   */
+  onStartCapture: (cb: (payload: { mode: CaptureMode }) => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, payload: { mode: CaptureMode }) =>
+      cb(payload ?? { mode: 'ptt' });
     ipcRenderer.on('start-audio-capture', handler);
     return () => ipcRenderer.removeListener('start-audio-capture', handler);
   },
@@ -287,6 +408,11 @@ const api = {
     ipcRenderer.send('audio-chunk', Buffer.from(buffer));
   },
 
+  /** Overlay → main: one finished VAD utterance (PCM16 mono 16 kHz). */
+  sendVadUtterance: (buffer: ArrayBuffer): void => {
+    ipcRenderer.send(IPC.VAD_UTTERANCE, Buffer.from(buffer));
+  },
+
   onPlayAudio: (cb: (audioData: ArrayBuffer) => void) => {
     const handler = (_e: Electron.IpcRendererEvent, data: Buffer) => {
       const copy = new ArrayBuffer(data.byteLength);
@@ -295,6 +421,12 @@ const api = {
     };
     ipcRenderer.on('play-audio', handler);
     return () => ipcRenderer.removeListener('play-audio', handler);
+  },
+  /** Main → overlay: stop any in-flight TTS playback immediately. */
+  onStopAudio: (cb: () => void) => {
+    const handler = () => cb();
+    ipcRenderer.on('stop-audio', handler);
+    return () => ipcRenderer.removeListener('stop-audio', handler);
   },
 };
 

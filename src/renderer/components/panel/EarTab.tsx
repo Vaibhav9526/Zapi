@@ -21,12 +21,18 @@ const MODELS: Array<{
 ];
 
 export function EarTab({ settings }: EarTabProps) {
+  const activeModel =
+    settings.transcriptionProvider === 'groq'
+      ? settings.groqTranscriptionModel
+      : settings.transcriptionProvider === 'openai'
+        ? 'whisper-1'
+        : 'system recognizer';
   return (
     <>
       <h1 className="main-h1">
         Ear<em>.</em>
       </h1>
-      <p className="main-lead">How Flicky hears you. Pick a transcription model based on the tradeoff between speed and accuracy.</p>
+      <p className="main-lead">How zapi hears you. Pick a transcription model based on the tradeoff between speed and accuracy.</p>
 
       <div className="section">
         <div className="section-title">Transcription provider</div>
@@ -38,6 +44,20 @@ export function EarTab({ settings }: EarTabProps) {
           isSet={settings.apiKeyStatus.groq}
           keyPlaceholder="gsk_..."
         />
+        <div className="ear-active">
+          <span className="ear-active-label">active</span>
+          <span className="ear-active-value">
+            {settings.transcriptionProvider} · {activeModel}
+          </span>
+        </div>
+        {/* ClinePass-style endpoints have no /audio/transcriptions — an
+            OpenAI dictation provider pointed at a custom base URL will
+            411 on every utterance. Surface it before users file a bug. */}
+        {settings.transcriptionProvider === 'openai' && settings.openAIBaseUrl.trim() !== '' && (
+          <div className="ear-warn" role="status">
+            heads up: this endpoint may not support Whisper — Groq is the safe pick for dictation
+          </div>
+        )}
         <p className="section-hint">Transcribes your voice fast and accurately.</p>
       </div>
 

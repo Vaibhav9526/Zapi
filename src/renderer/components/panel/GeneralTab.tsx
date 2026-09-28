@@ -13,6 +13,26 @@ function formatTokens(n: number): string {
   return `${(n / 1_000_000).toFixed(1)}M`;
 }
 
+/**
+ * Normalize an accelerator so two different spellings of the same chord
+ * compare equal: lowercase, trimmed parts, modifier aliases folded
+ * (Control→ctrl, Command/Cmd/Meta→meta), and parts sorted so
+ * "Ctrl+Alt+D" and "Alt+Ctrl+D" are the same shortcut.
+ */
+function normalizeShortcut(accel: string): string {
+  return accel
+    .split('+')
+    .map((p) => p.trim().toLowerCase())
+    .filter(Boolean)
+    .map((p) => {
+      if (p === 'control') return 'ctrl';
+      if (p === 'command' || p === 'cmd') return 'meta';
+      return p;
+    })
+    .sort()
+    .join('+');
+}
+
 function formatRelative(ts: number | null): string {
   if (!ts) return 'never';
   const sec = Math.floor((Date.now() - ts) / 1000);
@@ -24,8 +44,42 @@ function formatRelative(ts: number | null): string {
   return `${Math.floor(hr / 24)}d ago`;
 }
 
+/**
+ * Small numeric field for "Max agent steps". Keeps a local draft while
+ * typing (clamping mid-keystroke makes "30" unreachable — typing "3" would
+ * pin to 3), then commits clamped on blur or Enter; Escape reverts.
+ */
+function StepsInput({ value, disabled }: { value: number; disabled?: boolean }) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const commit = (raw: string) => {
+    const n = parseInt(raw, 10);
+    if (!Number.isNaN(n)) {
+      window.flicky.setAgentMaxSteps(Math.min(30, Math.max(3, n)));
+    }
+    setDraft(null);
+  };
+  return (
+    <input
+      className="num-input"
+      type="number"
+      min={3}
+      max={30}
+      disabled={disabled}
+      value={draft ?? String(value)}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={(e) => commit(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') commit(e.currentTarget.value);
+        else if (e.key === 'Escape') setDraft(null);
+      }}
+      aria-label="Max agent steps"
+    />
+  );
+}
+
 export function GeneralTab({ settings, memory }: GeneralTabProps) {
   const [editingShortcut, setEditingShortcut] = useState(false);
+  const [editingDictationShortcut, setEditingDictationShortcut] = useState(false);
   const [isCompacting, setIsCompacting] = useState(false);
   const [compactStatus, setCompactStatus] = useState<
     { kind: 'success' | 'error'; message: string } | null
@@ -60,7 +114,18 @@ export function GeneralTab({ settings, memory }: GeneralTabProps) {
     pct < 60 ? 'var(--fl-ok)' : pct < 85 ? 'var(--fl-warn)' : 'var(--fl-danger)';
 
   const shortcutKeys = settings.pushToTalkShortcut.split('+').filter(Boolean);
+  const dictationShortcutKeys = settings.dictationShortcut.split('+').filter(Boolean);
   const isMac = window.flicky.platform === 'darwin';
+
+  // Two global hotkeys now share this page — flag it when they collide.
+  // We warn rather than block: main owns registration and may reject the
+  // new binding anyway, so the setter still fires.
+  const pttEmpty = shortcutKeys.length === 0;
+  const dictationEmpty = dictationShortcutKeys.length === 0;
+  const shortcutConflict =
+    !pttEmpty &&
+    !dictationEmpty &&
+    normalizeShortcut(settings.pushToTalkShortcut) === normalizeShortcut(settings.dictationShortcut);
 
   return (
     <>
@@ -79,6 +144,10 @@ export function GeneralTab({ settings, memory }: GeneralTabProps) {
                 ? 'tap once to start, tap again to stop'
                 : 'hold to speak, release to send'}
             </div>
+            {pttEmpty && <div className="row-warn">no shortcut bound — you won't be able to talk</div>}
+            {shortcutConflict && (
+              <div className="row-warn">same keys as push-to-dictate — pick a different combo</div>
+            )}
           </div>
           {editingShortcut ? (
             <ShortcutCapture
@@ -132,9 +201,109 @@ export function GeneralTab({ settings, memory }: GeneralTabProps) {
       </div>
 
       <div className="section">
+        <div className="section-title" style={{ marginBottom: 4 }}>Modes</div>
+        <div className="row">
+          <div className="row-main">
+            <div className="row-t">Always-on listening</div>
+            <div className="row-s">listens continuously — no hotkey needed</div>
+          </div>
+          <button
+            className={`toggle ${settings.alwaysOnEnabled ? 'on' : ''}`}
+            onClick={() => window.flicky.setAlwaysOn(!settings.alwaysOnEnabled)}
+            aria-label="Toggle always-on listening"
+          />
+        </div>
+        <div className="row">
+          <div className="row-main">
+            <div className="row-t">Dictation mode</div>
+            <div className="row-s">types what you say into the focused field instead of answering</div>
+          </div>
+          <button
+            className={`toggle ${settings.dictationEnabled ? 'on' : ''}`}
+            onClick={() => window.flicky.setDictation(!settings.dictationEnabled)}
+            aria-label="Toggle dictation mode"
+          />
+        </div>
+        <div className="row">
+          <div className="row-main">
+            <div className="row-t">Push-to-dictate hotkey</div>
+            <div className="row-s">hold to dictate — types into the focused field</div>
+            {dictationEmpty && (
+              <div className="row-warn">no shortcut bound — dictation hotkey won't fire</div>
+            )}
+            {shortcutConflict && (
+              <div className="row-warn">same keys as push to talk — pick a different combo</div>
+            )}
+          </div>
+          {editingDictationShortcut ? (
+            <ShortcutCapture
+              onSave={(accel) => {
+                window.flicky.setDictationShortcut(accel);
+                setEditingDictationShortcut(false);
+              }}
+              onCancel={() => setEditingDictationShortcut(false)}
+            />
+          ) : (
+            <div className="shortcut-edit">
+              <div className="keys">
+                {dictationShortcutKeys.map((k, i) => (
+                  <kbd key={`${k}-${i}`}>{k}</kbd>
+                ))}
+              </div>
+              <span className="rec" onClick={() => setEditingDictationShortcut(true)}>edit</span>
+            </div>
+          )}
+        </div>
+        <div className="row">
+          <div className="row-main">
+            <div className="row-t">Agent mode</div>
+            <div className="row-s">zapi agent … takes over mouse + keyboard</div>
+          </div>
+          <button
+            className={`toggle ${settings.agentEnabled ? 'on' : ''}`}
+            onClick={() => window.flicky.setAgentEnabled(!settings.agentEnabled)}
+            aria-label="Toggle agent mode"
+          />
+        </div>
+        <div className="row">
+          <div className="row-main">
+            <div className="row-t">Max agent steps</div>
+            <div className="row-s">hard stop for one agent run — 3 to 30 screenshot → act loops</div>
+          </div>
+          <StepsInput value={settings.agentMaxSteps} disabled={!settings.agentEnabled} />
+        </div>
+        <div className="row">
+          <div className="row-main">
+            <div className="row-t">Mute routine announcements</div>
+            <div className="row-s">routines still run on schedule — completions stay silent (no voice/overlay)</div>
+          </div>
+          <button
+            className={`toggle ${settings.routinesMuted ? 'on' : ''}`}
+            onClick={() => window.flicky.setRoutinesMuted(!settings.routinesMuted)}
+            aria-label="Toggle routine announcements"
+          />
+        </div>
+      </div>
+
+      <div className="section">
+        <div className="section-title">Setup</div>
+        <div className="row" style={{ borderBottom: 'none' }}>
+          <div className="row-main">
+            <div className="row-t">Replay onboarding</div>
+            <div className="row-s">walk through setup again — keys and settings stay put</div>
+          </div>
+          {/* No reload needed: main flips onboardingComplete=false and emits
+              settings, so PanelApp re-renders into <Onboarding> itself. */}
+          <button className="btn" onClick={() => window.flicky.replayOnboarding()}>
+            show onboarding again
+          </button>
+        </div>
+      </div>
+
+      <div className="section">
         <div className="section-title">Memory</div>
         <p className="section-hint" style={{ margin: '6px 0 14px' }}>
-          Flicky auto-compacts older messages into a summary near the {formatTokens(budget)} cap so the
+          zapi auto-compacts older messages into a summary near the {formatTokens(budget)} cap so the
           conversation can run forever.
         </p>
         <div className="context-bar">
@@ -181,7 +350,7 @@ export function GeneralTab({ settings, memory }: GeneralTabProps) {
         <div className="row">
           <div className="row-main">
             <div className="row-t">Show cursor</div>
-            <div className="row-s">blue pointer that flies to things Flicky mentions</div>
+            <div className="row-s">blue pointer that flies to things zapi mentions</div>
           </div>
           <button
             className={`toggle ${settings.isClickyCursorEnabled ? 'on' : ''}`}
@@ -191,10 +360,10 @@ export function GeneralTab({ settings, memory }: GeneralTabProps) {
         </div>
         <div className="row">
           <div className="row-main">
-            <div className="row-t">Allow Flicky to type for you</div>
+            <div className="row-t">Allow zapi to type for you</div>
             <div className="row-s">
-              when off (default), Flicky copies text to your clipboard and you press paste.
-              when on, Flicky types directly into the focused field
+              when off (default), zapi copies text to your clipboard and you press paste.
+              when on, zapi types directly into the focused field
               {isMac && <> — requires <strong>Accessibility</strong> permission on macOS</>}.
             </div>
           </div>
@@ -207,7 +376,7 @@ export function GeneralTab({ settings, memory }: GeneralTabProps) {
         <div className="row">
           <div className="row-main">
             <div className="row-t">Launch at login</div>
-            <div className="row-s">open Flicky when you sign in</div>
+            <div className="row-s">open zapi when you sign in</div>
           </div>
           <button
             className={`toggle ${settings.launchAtLogin ? 'on' : ''}`}

@@ -1,5 +1,16 @@
 /* ── Overlay Window Styles ───────────────────────────────────────────── */
 
+/* Bundled handwritten face for 'write' ink cues. Served local so the
+   overlay never depends on the network mid-presentation; the stack
+   falls back to OS handwriting-ish faces when the woff2 is missing. */
+@font-face {
+  font-family: 'Caveat';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('../fonts/Caveat-SemiBold.woff2') format('woff2');
+}
+
 .overlay-container {
   position: fixed;
   inset: 0;
@@ -74,7 +85,15 @@
   box-shadow: 0 4px 14px rgba(29, 78, 216, 0.35);
 }
 
-.pointing-bubble .bubble-text { line-height: 1.2; }
+.pointing-bubble .bubble-text {
+  line-height: 1.2;
+  /* Model-authored labels are unbounded — cap the bubble so a chatty
+     cue can't sprawl the chip off the edge of the display. */
+  max-width: 40vw;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 .pointing-bubble .step-badge {
   display: inline-flex;
@@ -130,9 +149,17 @@
 }
 
 /* ── Type-fulfilled Toast ─────────────────────────────────────────── */
-/* Floats near the bottom-center of the display when Flicky has copied
+/* Floats near the bottom-center of the display when Zapi has copied
    text to the clipboard for the user to paste. Auto-hides after a
    few seconds. */
+
+/* ── Glass chrome ──────────────────────────────────────────────────
+   Shared macOS-style recipe for overlay chrome: translucent dark fill,
+   frosted blur, hairline light border, layered soft shadow. NOTE: on a
+   transparent window backdrop-filter can only sample the in-page
+   backdrop — which here is the ink layer — so chips genuinely frost any
+   stroke passing beneath them, while the .55 fill supplies the
+   desktop-side translucency. Ink strokes themselves stay untouched. */
 
 .type-toast {
   position: fixed;
@@ -141,18 +168,21 @@
   transform: translateX(-50%);
   max-width: 480px;
   padding: 12px 16px;
-  background: rgba(20, 22, 28, 0.92);
-  backdrop-filter: blur(18px) saturate(140%);
-  -webkit-backdrop-filter: blur(18px) saturate(140%);
-  border: 1px solid rgba(125, 211, 252, 0.45);
-  border-radius: 12px;
+  background: rgba(20, 22, 28, 0.55);
+  backdrop-filter: blur(18px) saturate(160%);
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 16px;
   box-shadow:
-    0 12px 32px rgba(0, 0, 0, 0.45),
-    0 0 0 1px rgba(59, 130, 246, 0.15) inset;
+    0 12px 32px rgba(0, 0, 0, 0.35),
+    0 2px 8px rgba(0, 0, 0, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
   color: #e7e7ea;
   font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
   font-size: 13px;
   pointer-events: none;
+  transition: opacity 0.24s cubic-bezier(0.33, 1, 0.68, 1),
+    background-color 0.24s cubic-bezier(0.33, 1, 0.68, 1);
   animation: type-toast-in 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
@@ -203,4 +233,682 @@
 @keyframes type-toast-in {
   from { opacity: 0; transform: translate(-50%, 8px) scale(0.96); }
   to   { opacity: 1; transform: translate(-50%, 0) scale(1); }
+}
+
+/* ── Ink Layer (scene draw cues) ──────────────────────────────────── */
+/* Fullscreen SVG behind the cursor chrome. Stays pointer-events-none
+   so the overlay window never swallows clicks, no matter the scene. */
+
+.ink-layer {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: visible;
+  transition: opacity 0.6s ease-out;
+}
+
+.ink-layer.ink-fading {
+  opacity: 0;
+}
+
+.ink-stroke {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Dark halo ~2px wider than the ink so strokes read on light apps. */
+.ink-under {
+  fill: none;
+  stroke: rgba(0, 0, 0, 0.5);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 1;
+  animation: ink-draw 0.5s ease-out both;
+}
+
+/* Marker-pen draw-on: pathLength=1 normalizes every shape so one dash
+   animation works for arrows, boxes, circles and freehand paths. */
+.ink-draw {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 1;
+  animation: ink-draw 0.5s ease-out both;
+}
+
+/* Faint offset echo — the second marker pass that sells "hand-drawn". */
+.ink-echo {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 1;
+  opacity: 0.22;
+  animation: ink-draw 0.5s ease-out both;
+}
+
+@keyframes ink-draw {
+  from { stroke-dashoffset: 1; }
+  to   { stroke-dashoffset: 0; }
+}
+
+/* Budget retirement — over-budget strokes mount into this wrapper and
+   fade out over 0.45s while React drops them just after (see RETIRE_MS),
+   so long scenes thin out without blinking ink away mid-explanation. */
+.ink-retiring {
+  animation: ink-retire 0.45s ease-out both;
+}
+
+/* A stroke crossing the budget boundary remounts under a new React key,
+   which restarts every child animation — without this rule the draw-on
+   sweep replays inside the fade and old ink "redraws" while vanishing.
+   Children must render fully drawn; the wrapper's fade is the only
+   motion a retiring stroke gets. (.ink-land's base opacity is already
+   0 and .ink-draw's dashoffset defaults to drawn, so nothing flashes.) */
+.ink-retiring * {
+  animation: none !important;
+}
+
+@keyframes ink-retire {
+  from { opacity: 1; }
+  to   { opacity: 0; }
+}
+
+/* Hilite swipes fade in rather than drawing on — no pen path to trace. */
+.ink-hilite {
+  stroke: rgba(255, 180, 0, 0.55);
+  stroke-width: 1.5;
+  animation: ink-hilite-in 0.25s ease-out both;
+}
+
+@keyframes ink-hilite-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.ink-write {
+  font-family: 'Caveat', 'Segoe Print', 'Comic Sans MS', cursive;
+  font-size: 30px;
+  font-weight: 600;
+  fill: #ffc53d;
+  /* Dark outline so handwriting reads on light windows too. */
+  stroke: rgba(0, 0, 0, 0.65);
+  stroke-width: 4px;
+  paint-order: stroke fill;
+}
+
+/* Handwriting reveal — a left-to-right clip sweep (~700ms) so letters
+   uncover in reading order instead of popping in whole. Vertical insets
+   go negative so ascenders/descenders are never sliced mid-sweep. */
+.ink-write-reveal {
+  animation: ink-write-reveal 0.7s ease-out both;
+}
+
+@keyframes ink-write-reveal {
+  from { clip-path: inset(-15% 100% -15% 0); opacity: 0.4; }
+  15%  { opacity: 1; }
+  to   { clip-path: inset(-15% 0 -15% 0); opacity: 1; }
+}
+
+/* Arrow land pulse — one quick ring at the head tip, delayed until the
+   ~500ms draw-on finishes. transform-box keeps the scale centred on the
+   circle itself rather than the SVG origin (DPI-safe: r stays in px). */
+.ink-land {
+  fill: none;
+  stroke: #ff9d0a;
+  stroke-width: 2.5;
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: ink-land 0.35s ease-out 0.5s both;
+}
+
+@keyframes ink-land {
+  from { opacity: 0.9; transform: scale(0.4); }
+  to   { opacity: 0; transform: scale(1.8); }
+}
+
+/* ── Agent Echo ───────────────────────────────────────────────────── */
+/* Ripple ring + caption chip where Zapi just acted. Each echo fades on
+   its own timer so rapid clicks queue instead of clobbering.
+
+   `--echo-accent` is the acting agent's profile colour, set inline when
+   main stamps an agentId on the echo. Every rule below falls back to the
+   house amber, so an unstamped echo looks exactly as it did before
+   multi-agent colouring landed. */
+:root {
+  --echo-accent: #ff9d0a;
+}
+
+.agent-echo {
+  position: absolute;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.agent-echo-ring {
+  position: absolute;
+  left: -18px;
+  top: -18px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 2.5px solid var(--echo-accent);
+  animation: agent-ripple 1.4s ease-out forwards;
+}
+
+@keyframes agent-ripple {
+  from { transform: scale(0.3); opacity: 1; }
+  to   { transform: scale(1.6); opacity: 0; }
+}
+
+/* Double-click second ring — chases the first, so it needs `both`
+   fill to stay invisible during its delay instead of flashing full. */
+.agent-echo-ring.delay {
+  animation-delay: 0.18s;
+  animation-fill-mode: both;
+}
+
+/* Right-click ring — dashed to read as a different button. */
+.agent-echo-ring.dashed {
+  border-style: dashed;
+}
+
+.agent-echo-chip {
+  position: absolute;
+  left: 24px;
+  top: -12px;
+  padding: 4px 10px;
+  background: rgba(20, 22, 28, 0.55);
+  backdrop-filter: blur(18px) saturate(160%);
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  /* Accent stays in the border mix — it's the multi-agent colour
+     signal — but diluted into the glass hairline instead of opaque. */
+  border: 1px solid color-mix(in srgb, var(--echo-accent) 35%, rgba(255, 255, 255, 0.14));
+  border-radius: 16px;
+  box-shadow:
+    0 6px 18px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  color: #f5f5f7;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+  /* Action labels come from the model — cap them so a chatty label
+     can't stretch a chip across the display. */
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: opacity 0.24s cubic-bezier(0.33, 1, 0.68, 1),
+    border-color 0.24s cubic-bezier(0.33, 1, 0.68, 1);
+  animation: agent-chip-fade 1.4s ease-out forwards;
+}
+
+@keyframes agent-chip-fade {
+  0%   { opacity: 0; transform: translateY(4px); }
+  15%  { opacity: 1; transform: translateY(0); }
+  70%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* Move echo — a bare dot, since a hover is not a hit. */
+.agent-echo-dot {
+  position: absolute;
+  left: -4px;
+  top: -4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--echo-accent);
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.5);
+  animation: agent-chip-fade 1.4s ease-out forwards;
+}
+
+/* type/key echo — kbd-style chip rising off the acted point. */
+.agent-echo-key {
+  position: absolute;
+  left: 10px;
+  top: -32px;
+  padding: 3px 9px;
+  background: rgba(20, 22, 28, 0.55);
+  backdrop-filter: blur(18px) saturate(160%);
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  border: 1px solid color-mix(in srgb, var(--echo-accent) 35%, rgba(255, 255, 255, 0.14));
+  border-radius: 12px;
+  box-shadow:
+    0 6px 18px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  color: color-mix(in srgb, var(--echo-accent) 45%, #ffffff);
+  font-size: 12px;
+  white-space: nowrap;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: opacity 0.24s cubic-bezier(0.33, 1, 0.68, 1);
+  animation: agent-key-rise 1.4s ease-out forwards;
+}
+
+.agent-echo-key kbd {
+  font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;
+  font-size: 11px;
+}
+
+@keyframes agent-key-rise {
+  0%   { opacity: 0; transform: translateY(8px); }
+  15%  { opacity: 1; transform: translateY(0); }
+  70%  { opacity: 1; }
+  100% { opacity: 0; transform: translateY(-10px); }
+}
+
+/* Non-spatial echo stack — typing, keystrokes, scroll notches and the
+   wait/done/fail beats have no point on screen (the driver reports 0,0 for
+   them), so they pulse in a small stack just above the status pill. One
+   shared container (not one per echo) so concurrent pulses stack upward
+   instead of piling onto the same fixed spot. */
+.agent-echo-chip-pulse {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: center;
+  gap: 4px;
+  pointer-events: none;
+}
+
+/* The glyph styles are anchored to a zero-size on-screen point; inside the
+   stack the flex parent owns the layout, so unpin them. */
+.agent-echo-chip-pulse .agent-echo-key,
+.agent-echo-chip-pulse .agent-echo-scroll {
+  position: static;
+  left: auto;
+  top: auto;
+  max-width: 180px;
+  animation: agent-chip-fade 1.4s ease-out forwards;
+}
+
+.agent-echo-chip-label {
+  padding: 3px 9px;
+  background: rgba(20, 22, 28, 0.55);
+  backdrop-filter: blur(18px) saturate(160%);
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  border: 1px solid color-mix(in srgb, var(--echo-accent) 35%, rgba(255, 255, 255, 0.14));
+  border-radius: 12px;
+  box-shadow:
+    0 6px 18px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  color: color-mix(in srgb, var(--echo-accent) 45%, #ffffff);
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: opacity 0.24s cubic-bezier(0.33, 1, 0.68, 1);
+  animation: agent-chip-fade 1.4s ease-out forwards;
+}
+
+/* Scroll glyph — chevrons nudging in the scroll direction, recovered from
+   the label since main sends no direction field. */
+.agent-echo-scroll {
+  position: absolute;
+  left: -14px;
+  top: -22px;
+  color: var(--echo-accent);
+  font-size: 14px;
+  letter-spacing: 1px;
+  /* Dark outline so amber chevrons read on light windows too. */
+  text-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.8),
+    0 0 6px rgba(0, 0, 0, 0.5);
+}
+
+.agent-echo-scroll.scroll-up { animation: agent-scroll-up 1.4s ease-out forwards; }
+.agent-echo-scroll.scroll-down { animation: agent-scroll-down 1.4s ease-out forwards; }
+.agent-echo-scroll.scroll-left { animation: agent-scroll-left 1.4s ease-out forwards; }
+.agent-echo-scroll.scroll-right { animation: agent-scroll-right 1.4s ease-out forwards; }
+
+@keyframes agent-scroll-up {
+  0%   { opacity: 0; transform: translateY(6px); }
+  20%  { opacity: 1; }
+  70%  { opacity: 1; }
+  100% { opacity: 0; transform: translateY(-8px); }
+}
+
+@keyframes agent-scroll-down {
+  0%   { opacity: 0; transform: translateY(-6px); }
+  20%  { opacity: 1; }
+  70%  { opacity: 1; }
+  100% { opacity: 0; transform: translateY(8px); }
+}
+
+@keyframes agent-scroll-left {
+  0%   { opacity: 0; transform: translateX(6px); }
+  20%  { opacity: 1; }
+  70%  { opacity: 1; }
+  100% { opacity: 0; transform: translateX(-8px); }
+}
+
+@keyframes agent-scroll-right {
+  0%   { opacity: 0; transform: translateX(-6px); }
+  20%  { opacity: 1; }
+  70%  { opacity: 1; }
+  100% { opacity: 0; transform: translateX(8px); }
+}
+
+/* Outcome tint — the run's final verdict flashes its color, holds
+   readable for a beat, then fades the pill out entirely. */
+.agent-pill.outcome-done {
+  border-color: rgba(52, 211, 153, 0.65);
+  animation: agent-outcome-done 3s ease-out forwards;
+}
+
+@keyframes agent-outcome-done {
+  0%   { opacity: 0; box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.7); }
+  12%  { opacity: 1; box-shadow: 0 0 24px 2px rgba(52, 211, 153, 0.45); }
+  70%  { opacity: 1; box-shadow: 0 0 10px 0 rgba(52, 211, 153, 0.2); }
+  100% { opacity: 0; box-shadow: none; }
+}
+
+.agent-pill.outcome-failed {
+  border-color: rgba(248, 113, 113, 0.65);
+  animation: agent-outcome-failed 3s ease-out forwards;
+}
+
+@keyframes agent-outcome-failed {
+  0%   { opacity: 0; box-shadow: 0 0 0 0 rgba(248, 113, 113, 0.7); }
+  12%  { opacity: 1; box-shadow: 0 0 24px 2px rgba(248, 113, 113, 0.45); }
+  70%  { opacity: 1; box-shadow: 0 0 10px 0 rgba(248, 113, 113, 0.2); }
+  100% { opacity: 0; box-shadow: none; }
+}
+
+/* Agent drive glow — a slow amber ring breathing around the companion
+   cursor while the agent owns the mouse, so users can tell at a glance
+   Zapi is driving. Infinite while acting; removed with the state. */
+.agent-drive-glow {
+  position: absolute;
+  width: 44px;
+  height: 44px;
+  margin-left: -22px;
+  margin-top: -22px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 157, 10, 0.7);
+  background: radial-gradient(closest-side, rgba(255, 157, 10, 0.14), rgba(255, 157, 10, 0));
+  box-shadow: 0 0 18px rgba(255, 157, 10, 0.4);
+  animation: drive-glow 2s ease-out infinite;
+  pointer-events: none;
+}
+
+@keyframes drive-glow {
+  0%   { transform: scale(0.75); opacity: 0.9; }
+  70%  { transform: scale(1.2); opacity: 0; }
+  100% { transform: scale(1.2); opacity: 0; }
+}
+/* Bottom-center pill narrating the agent run while it acts. The border
+   follows --echo-accent so a second agent's run is visually its own; the
+   default agent sets no accent and keeps the house amber. */
+.agent-pill {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  padding: 8px 16px;
+  background: rgba(20, 22, 28, 0.55);
+  backdrop-filter: blur(18px) saturate(160%);
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  /* Capsule stays — a pill is the macOS glass idiom — but the accent
+     hairline drops into the glass border mix rather than a solid tint. */
+  border: 1px solid color-mix(in srgb, var(--echo-accent) 35%, rgba(255, 255, 255, 0.14));
+  border-radius: 999px;
+  box-shadow:
+    0 8px 24px rgba(0, 0, 0, 0.35),
+    0 2px 6px rgba(0, 0, 0, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  color: #f5f5f7;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  /* Status messages come from the loop and can be long — ellipsize
+     instead of stretching the pill across the screen. */
+  max-width: 60vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: opacity 0.24s cubic-bezier(0.33, 1, 0.68, 1),
+    border-color 0.24s cubic-bezier(0.33, 1, 0.68, 1),
+    color 0.24s cubic-bezier(0.33, 1, 0.68, 1);
+  pointer-events: none;
+}
+
+/* Queued for the input lease — same pill shape but muted and slowly
+   breathing, so a parked agent never reads as "currently driving"
+   (that one keeps the solid border plus the cursor-side drive glow). */
+.agent-pill.waiting {
+  border-color: color-mix(in srgb, var(--echo-accent) 18%, rgba(255, 255, 255, 0.12));
+  color: rgba(245, 245, 247, 0.75);
+  animation: pill-waiting 2.4s ease-in-out infinite;
+}
+
+@keyframes pill-waiting {
+  0%, 100% { opacity: 0.78; }
+  50%      { opacity: 0.5; }
+}
+
+/* ── Always-on (vad) Indicator ──────────────────────────────────── */
+/* Tiny mic dot while the capture gate is hot in vad mode. Green pulse
+   = listening hands-free; dimmed red = suppressed (Zapi is speaking or
+   acting, ears off). The 'heard you' tick flashes on each shipped
+   utterance. Never interactive, like everything else up here. */
+
+.vad-indicator {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  pointer-events: none;
+}
+
+.vad-indicator-fixed {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  pointer-events: none;
+}
+
+/* Bottom-center stack — one column for the fixed vad dot and the idle
+   whisper so stacked hints can never overlap each other. */
+.overlay-bottom-stack {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+
+/* Idle guidance — deliberately faint static text, no animation to
+   reduce (or to distract); the 12s timer gates its appearance. */
+.idle-hint {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: rgba(231, 231, 234, 0.6);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* Voice word next to the listening waveform — 'listening' normally,
+   'dictating' while ptt runs under the dictation switch. Static text. */
+.voice-label {
+  position: absolute;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(231, 231, 234, 0.75);
+  background: rgba(20, 22, 28, 0.55);
+  backdrop-filter: blur(18px) saturate(160%);
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  padding: 1px 7px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.vad-dot {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  background: rgba(20, 22, 28, 0.55);
+  backdrop-filter: blur(18px) saturate(160%);
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  box-shadow:
+    0 4px 12px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  /* The border stays semantic — green listening / red suppressed — so
+     the state signal isn't diluted into the glass hairline. */
+  border: 1.5px solid rgba(52, 211, 153, 0.8);
+  transition: border-color 0.24s cubic-bezier(0.33, 1, 0.68, 1),
+    opacity 0.24s cubic-bezier(0.33, 1, 0.68, 1);
+  animation: vad-pulse 2s ease-out infinite;
+}
+
+.vad-dot.suppressed {
+  border-color: rgba(248, 113, 113, 0.6);
+  opacity: 0.6;
+  animation: none;
+}
+
+@keyframes vad-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.5); }
+  70%  { box-shadow: 0 0 0 8px rgba(52, 211, 153, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0); }
+}
+
+.vad-heard {
+  color: #34d399;
+  font-size: 13px;
+  font-weight: 700;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+  animation: vad-heard-flash 0.9s ease-out both;
+}
+
+@keyframes vad-heard-flash {
+  0%   { opacity: 0; transform: scale(0.5); }
+  25%  { opacity: 1; transform: scale(1.15); }
+  60%  { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; }
+}
+
+/* ── Buddy Face ───────────────────────────────────────────────────── */
+/* Kaomoji state chip floating by the companion cursor. Pure status
+   mirror — never interactive. */
+
+.buddy-face {
+  position: absolute;
+  padding: 2px 8px;
+  background: rgba(20, 22, 28, 0.55);
+  backdrop-filter: blur(18px) saturate(160%);
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  box-shadow:
+    0 4px 12px rgba(0, 0, 0, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  color: #ffd9a0;
+  font-size: 11px;
+  line-height: 1.6;
+  letter-spacing: 1px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* ── Reduced Motion ───────────────────────────────────────────────── */
+/* Draw-on becomes instant (dashoffset defaults to fully drawn with the
+   animation off), ripples/chips become simple fades, pulses hold static.
+   Kaomoji needs nothing — it switches glyphs with no animation at all.
+   The waveform's bars live in waveform.css (not this file), so they are
+   stilled here with a scoped override. */
+
+@keyframes agent-reduced-fade {
+  from { opacity: 0.9; }
+  to   { opacity: 0; }
+}
+
+@keyframes agent-reduced-show {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ink-draw,
+  .ink-under,
+  .ink-echo {
+    animation: none;
+  }
+
+  .ink-land {
+    animation: none;
+    opacity: 0;
+  }
+
+  .ink-hilite,
+  .ink-write-reveal {
+    animation: none;
+  }
+
+  .ink-layer {
+    transition: none;
+  }
+
+  .agent-echo-ring,
+  .agent-echo-ring.delay {
+    animation: agent-reduced-fade 0.3s ease-out both;
+  }
+
+  .agent-echo-chip,
+  .agent-echo-chip-label,
+  .agent-echo-key,
+  .agent-echo-scroll,
+  .agent-echo-dot {
+    animation: agent-reduced-show 0.15s ease-out both;
+  }
+
+  .agent-pill.outcome-done,
+  .agent-pill.outcome-failed {
+    animation: none;
+    opacity: 1;
+    box-shadow: none;
+  }
+
+  /* Waiting stays readable as a static dimmed pill — the breath is
+     decorative, not the differentiator (border + text carry that). */
+  .agent-pill.waiting {
+    animation: none;
+    opacity: 0.78;
+  }
+
+  .target-halo,
+  .agent-drive-glow,
+  .vad-dot,
+  .processing-spinner {
+    animation: none;
+  }
+
+  .pointing-bubble,
+  .type-toast,
+  .vad-heard,
+  .buddy-face {
+    animation: none;
+  }
+
+  .overlay-waveform .wf-bar {
+    animation: none !important;
+  }
 }

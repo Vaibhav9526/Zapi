@@ -1,6 +1,12 @@
 // ── Voice / State Machine ──────────────────────────────────────────────
 
-export type VoiceState = 'idle' | 'listening' | 'processing' | 'responding';
+export type VoiceState =
+  | 'idle'
+  | 'listening'
+  | 'processing'
+  | 'responding'
+  /** Agent mode: the model is driving the mouse/keyboard. */
+  | 'acting';
 
 export type BuddyNavigationMode =
   | 'followingCursor'
@@ -13,12 +19,21 @@ export type TranscriptionProviderType = 'groq' | 'openai' | 'native';
 
 export type GroqTranscriptionModel =
   | 'whisper-large-v3'
-  | 'whisper-large-v3-turbo';
+  | 'whisper-large-v3-turbo'
+  | 'distil-whisper-large-v3-en';
 
 export interface TranscriptionResult {
   text: string;
   isFinal: boolean;
 }
+
+/**
+ * How the overlay's mic gate should behave when main starts capture:
+ *  'ptt' — forward every PCM chunk to main live (push-to-talk turn)
+ *  'vad' — run the local VAD, buffer voiced audio, and ship each finished
+ *          utterance to main as one VAD_UTTERANCE message (always-on mode)
+ */
+export type CaptureMode = 'ptt' | 'vad';
 
 // ── Overlay / Displays ─────────────────────────────────────────────────
 
@@ -33,7 +48,7 @@ export interface DisplayInfo {
  * `webPreferences.additionalArguments`, so the renderer can read it
  * synchronously at startup instead of racing an IPC message.
  */
-export const DISPLAY_INFO_ARG_PREFIX = '--flicky-display-info=';
+export const DISPLAY_INFO_ARG_PREFIX = '--zapi-display-info=';
 
 // ── Screen Capture ─────────────────────────────────────────────────────
 
@@ -69,24 +84,153 @@ export interface ConversationTurn {
   content: string;
 }
 
-// ── Element Pointing ───────────────────────────────────────────────────
+// ── Scene Cues (on-screen drawing + pointing) ──────────────────────────
+// A response can carry an ordered list of cues. Point cues move the
+// companion cursor; the rest are strokes drawn on the transparent
+// overlay. All coordinates are display-space logical pixels, already
+// mapped out of screenshot space by the parser in main.
 
-export interface DetectedElement {
+export type SceneCueKind =
+  | 'point'   // cursor hops to x,y with a caption bubble
+  | 'arrow'   // marker stroke from (x,y) to (x2,y2) with arrowhead
+  | 'circle'  // rough ellipse ring centred at (x,y), radii (w,h)
+  | 'box'     // rough rounded rect at (x,y) sized (w,h)
+  | 'hilite'  // translucent marker highlight at (x,y) sized (w,h)
+  | 'path'    // freehand polyline through `points`
+  | 'write'   // handwritten-style text label anchored at (x,y)
+  | 'clear';  // wipe accumulated strokes mid-scene
+
+export interface SceneCue {
+  kind: SceneCueKind;
+  /** Display-space anchor point. */
   x: number;
   y: number;
-  label: string;
+  /** Secondary geometry — arrow tip, unused otherwise. */
+  x2?: number;
+  y2?: number;
+  /** Width / height for box, hilite; radii for circle. */
+  w?: number;
+  h?: number;
+  /** Polyline vertices for 'path'. */
+  points?: Array<{ x: number; y: number }>;
+  /** Caption / label / written text. */
+  text?: string;
+  /** Which captured screenshot the cue was authored against. */
   screenIndex: number;
+  /** 1-based position + count, set for 'point' cues so step UI works. */
+  step?: number;
+  total?: number;
 }
 
-export interface WalkthroughStep extends DetectedElement {
-  /** 1-based position in the walkthrough sequence. */
+export interface Scene {
+  cues: SceneCue[];
+}
+
+// ── Agent Mode (computer control) ──────────────────────────────────────
+
+export type AgentActionKind =
+  | 'click'
+  | 'dclick'
+  | 'rclick'
+  | 'type'
+  | 'key'
+  | 'scroll'
+  | 'drag'
+  | 'move'
+  | 'wait'
+  | 'done'
+  | 'fail';
+
+export interface AgentAction {
+  kind: AgentActionKind;
+  /** Which agent performed this action (echo routing/attribution). */
+  agentId?: string;
+  /** Display-space logical coordinates for pointer actions. */
+  x?: number;
+  y?: number;
+  /** Drag destination. */
+  x2?: number;
+  y2?: number;
+  /** type → text; key → combo like "ctrl+s"; done/fail → message. */
+  text?: string;
+  /** scroll → wheel notches (+up/-down per direction field); wait → ms. */
+  amount?: number;
+  /** scroll direction. */
+  direction?: 'up' | 'down' | 'left' | 'right';
+  screenIndex?: number;
+}
+
+// ── Agent Profiles (multi-agent "Clickys" model) ───────────────────────
+
+export interface AgentProfile {
+  id: string;
+  name: string;
+  /** Kaomoji face shown on the overlay/status for this agent. */
+  kaomoji: string;
+  /** Accent color for pills/badges. */
+  color: string;
+  createdAt: number;
+  archived: boolean;
+}
+
+export type AgentPhase = 'idle' | 'thinking' | 'waiting' | 'acting' | 'done' | 'failed';
+
+/**
+ * A scheduled routine owned by an agent — runs `task` on an interval or
+ * daily at a fixed time, posting results into that agent's chat.
+ */
+export interface Routine {
+  id: string;
+  agentId: string;
+  name: string;
+  /** 'interval' runs every intervalMinutes; 'daily' runs at timeOfDay HH:MM. */
+  kind: 'interval' | 'daily';
+  intervalMinutes?: number;
+  timeOfDay?: string;
+  /** The instruction the agent executes (talk-mode turn by default). */
+  task: string;
+  enabled: boolean;
+  lastRunAt?: number;
+}
+
+/**
+ * A file an agent produced (sheet, doc, image, code, ...). Stored under
+ * the app's artifacts dir; surfaced as a pile on the agent's card/chat.
+ */
+export interface Artifact {
+  id: string;
+  agentId: string;
+  /** Display title (usually filename). */
+  title: string;
+  /** Absolute path on disk. */
+  path: string;
+  /** Broad kind for icons. */
+  kind: 'sheet' | 'doc' | 'image' | 'code' | 'other';
+  createdAt: number;
+  size?: number;
+}
+
+/** A proactive task card suggested for an agent. */
+export interface Suggestion {
+  id: string;
+  agentId: string;
+  title: string;
+  /** The instruction run when accepted. */
+  task: string;
+  /** Why it was suggested (shown under the title). */
+  reason?: string;
+  createdAt: number;
+  dismissed: boolean;
+}
+
+export interface AgentStatus {
+  /** Which agent this status belongs to. */
+  agentId: string;
+  phase: AgentPhase;
   step: number;
-  /** Total number of steps in the walkthrough. */
-  total: number;
-}
-
-export interface Walkthrough {
-  steps: WalkthroughStep[];
+  maxSteps: number;
+  /** Last action description / result for the status line. */
+  message?: string;
 }
 
 /**
@@ -134,12 +278,13 @@ export interface LocalConnection {
 
 // ── API Keys ───────────────────────────────────────────────────────────
 
-export type ApiKeyName = 'anthropic' | 'openai' | 'elevenlabs' | 'groq';
+export type ApiKeyName = 'anthropic' | 'openai' | 'elevenlabs' | 'fishaudio' | 'groq';
 
 export interface ApiKeyStatus {
   anthropic: boolean;
   openai: boolean;
   elevenlabs: boolean;
+  fishaudio: boolean;
   groq: boolean;
 }
 
@@ -162,6 +307,9 @@ export interface PermissionStatus {
 }
 
 // ── Voice / TTS ────────────────────────────────────────────────────────
+
+/** Which speech provider synthesizes spoken replies. */
+export type TtsProvider = 'elevenlabs' | 'fishaudio';
 
 /** Built-in voice presets we curate for the voice picker. */
 export interface VoicePreset {
@@ -187,6 +335,29 @@ export interface ChatEntry {
   timestamp: number;
   userText: string;
   assistantText: string;
+  /** What produced this turn — plain talk, a dictated paste, or an agent run. */
+  kind?: 'talk' | 'dictation' | 'agent';
+  /** Owning agent profile id; absent means the default 'main' agent. */
+  agentId?: string;
+  /** False until the user has opened that agent's chat — drives unread dots. */
+  read?: boolean;
+  /** Artifact ids produced during this turn, if any. */
+  artifactIds?: string[];
+}
+
+// ── Usage metering ─────────────────────────────────────────────────────
+
+export interface UsageStats {
+  /** 'YYYY-MM' bucket — rolls over monthly. */
+  month: string;
+  talkTurns: number;
+  agentMessages: number;
+  dictationUtterances: number;
+  /** Per-agent counters keyed by AgentProfile.id; totals above keep working. */
+  perAgent?: Record<
+    string,
+    { talkTurns: number; agentMessages: number; dictationUtterances: number }
+  >;
 }
 
 // ── Memory / Context ───────────────────────────────────────────────────
@@ -226,7 +397,10 @@ export interface FlickySettings {
   replyTone: ReplyTone;
 
   // Voice (TTS)
+  ttsProvider: TtsProvider;
   voiceId: string;
+  /** Fish Audio reference_id (voice model id). '' = provider default voice. */
+  fishVoiceId: string;
   voiceSpeed: number;    // 0.7 – 1.2 (ElevenLabs accepted range)
   voiceStability: number; // 0 – 1
   speakReplies: boolean;
@@ -248,7 +422,7 @@ export interface FlickySettings {
    */
   pttMode: PttMode;
   /**
-   * If true, Flicky may type text directly into the focused field when
+   * If true, Zapi may type text directly into the focused field when
    * the model emits a [TYPE:...] tag. Requires Accessibility permission
    * on macOS and the native auto-typer module to be available; falls
    * back to clipboard handoff in either case. Off by default.
@@ -257,12 +431,53 @@ export interface FlickySettings {
   /**
    * Controls the transparent stream window:
    * - 'off'       — never shown
-   * - 'responses' — shown only while Flicky is actively answering
+   * - 'responses' — shown only while Zapi is actively answering
    * - 'always'    — shown continuously once the app starts
    */
   streamVisibility: StreamVisibility;
   /** Last known position + size of the stream window; null = auto-place. */
   streamWindowBounds: StreamWindowBounds | null;
+
+  // Modes
+  /**
+   * Always-on listening: the mic stays open and a local VAD in the
+   * overlay segments utterances; each utterance becomes a normal turn
+   * without touching the push-to-talk shortcut.
+   */
+  alwaysOnEnabled: boolean;
+  /**
+   * Dictation mode: transcribed speech is typed into the focused field
+   * instead of being sent to the model.
+   */
+  dictationEnabled: boolean;
+  /** Push-to-dictate global hotkey — transcribes straight into the focused field. */
+  dictationShortcut: string;
+  /**
+   * Master switch for agent mode. When on, turns whose transcript starts
+   * with the agent trigger ("zapi agent", "hey agent", ...) run the
+   * computer-control loop instead of the talk loop.
+   */
+  agentEnabled: boolean;
+  /** Hard cap on screenshot→act iterations inside one agent run. */
+  agentMaxSteps: number;
+  /**
+   * Free-form OpenAI model id. When non-empty it wins over
+   * selectedOpenAIModel — lets users point at newly released or custom
+   * endpoint model names the picker doesn't list.
+   */
+  customOpenAIModel: string;
+  /**
+   * OpenAI-compatible base URL override (ClinePass, proxies, etc.).
+   * Empty = default api.openai.com. Normalized: trailing slash + /v1 stripped.
+   */
+  openAIBaseUrl: string;
+
+  /** Named companion agents ("Clickys" model). 'main' is always present. */
+  agents: AgentProfile[];
+  /** Scheduled routines owned by agents (interval/daily). */
+  routines: Routine[];
+  /** When true, routine completions stay silent (no TTS/overlay announce). */
+  routinesMuted: boolean;
 
   // Local model connections
   localConnections: LocalConnection[];
@@ -275,13 +490,17 @@ export interface FlickySettings {
 }
 
 export const DEFAULT_SETTINGS: FlickySettings = {
-  mindProvider: 'anthropic',
+  // ClinePass-first: new installs land on the OpenAI-compatible provider
+  // (kept in lockstep with settings-store's DEFAULTS).
+  mindProvider: 'openai',
   selectedModel: 'claude-sonnet-4-6',
   selectedOpenAIModel: 'gpt-5',
   reasoningDepth: 'off',
   replyTone: 'friendly',
 
   voiceId: 'pMsXgVXv3BLzUgSXRplE',
+  ttsProvider: 'fishaudio',
+  fishVoiceId: '',
   voiceSpeed: 1.0,
   voiceStability: 0.5,
   speakReplies: true,
@@ -297,10 +516,30 @@ export const DEFAULT_SETTINGS: FlickySettings = {
   streamVisibility: 'off',
   streamWindowBounds: null,
 
+  alwaysOnEnabled: false,
+  dictationEnabled: false,
+  dictationShortcut: 'Ctrl+Alt+D',
+  agentEnabled: true,
+  agentMaxSteps: 15,
+  customOpenAIModel: '',
+  openAIBaseUrl: '',
+  agents: [
+    {
+      id: 'main',
+      name: 'Zapi',
+      kaomoji: '(•‿•)',
+      color: '#7b4dff',
+      createdAt: 0,
+      archived: false,
+    },
+  ],
+  routines: [],
+  routinesMuted: false,
+
   localConnections: [],
 
   onboardingComplete: false,
-  apiKeyStatus: { anthropic: false, openai: false, elevenlabs: false, groq: false },
+  apiKeyStatus: { anthropic: false, openai: false, elevenlabs: false, fishaudio: false, groq: false },
   encryptionAvailable: true,
 };
 
@@ -312,9 +551,16 @@ export const IPC = {
   TRANSCRIPT_UPDATE: 'transcript-update',
   AI_RESPONSE_CHUNK: 'ai-response-chunk',
   AI_RESPONSE_COMPLETE: 'ai-response-complete',
-  ELEMENT_DETECTED: 'element-detected',
-  WALKTHROUGH: 'walkthrough',
-  WALKTHROUGH_STEP: 'walkthrough-step',
+  /** Full scene payload ({ cues: SceneCue[] } | null). */
+  SCENE: 'scene',
+  /** Beat index inside the active scene, or null when it ends. */
+  SCENE_CUE: 'scene-cue',
+  /** Agent-mode status ({ phase, step, maxSteps, message? }) for panel/stream/overlay. */
+  AGENT_STATUS: 'agent-status',
+  /** One executed agent action, for the overlay's click-ripple echo. */
+  AGENT_ACTION: 'agent-action',
+  /** Overlay → Main: a VAD-segmented utterance (PCM16 mono 16 kHz) in always-on mode. */
+  VAD_UTTERANCE: 'vad-utterance',
   TYPE_FULFILLED: 'type-fulfilled',
   CURSOR_POSITION: 'cursor-position',
   SETTINGS_CHANGED: 'settings-changed',
@@ -343,8 +589,6 @@ export const IPC = {
   /** Run mic capture without transcription so setup can show levels. */
   MIC_TEST_START: 'mic-test-start',
   MIC_TEST_STOP: 'mic-test-stop',
-  PUSH_TO_TALK_START: 'push-to-talk-start',
-  PUSH_TO_TALK_STOP: 'push-to-talk-stop',
   SET_MODEL: 'set-model',
   SET_OPENAI_MODEL: 'set-openai-model',
   SET_MIND_PROVIDER: 'set-mind-provider',
@@ -362,7 +606,61 @@ export const IPC = {
   SET_AUTO_TYPE_ENABLED: 'set-auto-type-enabled',
   SET_STREAM_VISIBILITY: 'set-stream-visibility',
   SET_STREAM_WINDOW_BOUNDS: 'set-stream-window-bounds',
-  CLEAR_STREAM: 'clear-stream',
+  /** Voice (TTS) provider + per-provider voice id. */
+  SET_TTS_PROVIDER: 'set-tts-provider',
+  SET_FISH_VOICE_ID: 'set-fish-voice-id',
+  // Mode switches
+  SET_ALWAYS_ON: 'set-always-on',
+  SET_DICTATION: 'set-dictation',
+  SET_DICTATION_SHORTCUT: 'set-dictation-shortcut',
+  SET_AGENT_ENABLED: 'set-agent-enabled',
+  SET_AGENT_MAX_STEPS: 'set-agent-max-steps',
+  /** Free-form OpenAI model id override. */
+  SET_CUSTOM_OPENAI_MODEL: 'set-custom-openai-model',
+  /** OpenAI-compatible base URL override (ClinePass etc.). */
+  SET_OPENAI_BASE_URL: 'set-openai-base-url',
+  /** Renderer → Main: stop a running agent loop immediately. Payload: agentId? */
+  AGENT_STOP: 'agent-stop',
+  /** invoke → AgentProfile[] (non-archived + archived). */
+  AGENT_LIST: 'agent-list',
+  /** send { name, kaomoji?, color? } → creates a profile. */
+  AGENT_CREATE: 'agent-create',
+  /** send { id, name } → rename. */
+  AGENT_RENAME: 'agent-rename',
+  /** send { id } → archive (history kept). 'main' cannot be archived. */
+  AGENT_ARCHIVE: 'agent-archive',
+  /** invoke → Routine[] */
+  ROUTINE_LIST: 'routine-list',
+  /** send Routine minus id → create; send full Routine → update. */
+  ROUTINE_UPSERT: 'routine-upsert',
+  /** send { id } → delete. */
+  ROUTINE_DELETE: 'routine-delete',
+  /** send { muted: boolean } → silence/enable routine announcements. */
+  SET_ROUTINES_MUTED: 'set-routines-muted',
+  /** invoke agentId? → Artifact[] newest-first. */
+  ARTIFACT_LIST: 'artifact-list',
+  /** send { id } → open the file with the OS default app. */
+  ARTIFACT_OPEN: 'artifact-open',
+  /** send { id } → reveal in Explorer. */
+  ARTIFACT_REVEAL: 'artifact-reveal',
+  /** invoke agentId? → Suggestion[] (undismissed). */
+  SUGGESTION_LIST: 'suggestion-list',
+  /** send { id } → run the suggestion's task on its agent. */
+  SUGGESTION_ACCEPT: 'suggestion-accept',
+  /** send { id } → dismiss permanently. */
+  SUGGESTION_DISMISS: 'suggestion-dismiss',
+  /** send → ask the suggestions engine to refresh cards now. */
+  SUGGESTION_REFRESH: 'suggestion-refresh',
+  /** send { agentId } → mark that agent's chat entries read. */
+  CHAT_MARK_READ: 'chat-mark-read',
+  /** send { agentId, text } → run a typed turn on that agent. */
+  TEXT_TURN: 'text-turn',
+  /** invoke → string[]: model ids from {openAIBaseUrl||api.openai.com}/v1/models. */
+  LIST_REMOTE_MODELS: 'list-remote-models',
+  /** send { agentId } → open that agent's workspace folder in Explorer. */
+  OPEN_AGENT_WORKSPACE: 'open-agent-workspace',
+  /** Main → overlays: play a named ui sound (agent-launch/done/needs-you/question). */
+  PLAY_SFX: 'play-sfx',
   SUSPEND_PUSH_TO_TALK_SHORTCUT: 'suspend-push-to-talk-shortcut',
   RESUME_PUSH_TO_TALK_SHORTCUT: 'resume-push-to-talk-shortcut',
   GET_SETTINGS: 'get-settings',
@@ -376,6 +674,7 @@ export const IPC = {
   COMPACT_CONTEXT: 'compact-context',
   GET_MEMORY_STATS: 'get-memory-stats',
   GET_CHAT_HISTORY: 'get-chat-history',
+  GET_USAGE_STATS: 'get-usage-stats',
   CLEAR_CHAT_HISTORY: 'clear-chat-history',
   PLAY_VOICE_PREVIEW: 'play-voice-preview',
 

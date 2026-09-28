@@ -19,6 +19,8 @@ export function PanelApp() {
   const [tab, setTab] = useState<Tab>('home');
   const [version, setVersion] = useState('');
   const [lastError, setLastError] = useState<string | null>(null);
+  // Lifted so HomeTab's agent cards can deep-link into a filtered Chats view.
+  const [chatAgentFilter, setChatAgentFilter] = useState<string | null>(null);
 
   useEffect(() => {
     window.flicky.getSettings().then(setSettings);
@@ -55,9 +57,7 @@ export function PanelApp() {
   const mindNeeds =
     settings.mindProvider === 'openai'
       ? !apiKeyStatus.openai
-      : settings.mindProvider === 'ollama'
-        ? !(settings.localConnections ?? []).some((c) => c.enabled)
-        : !apiKeyStatus.anthropic;
+      : !apiKeyStatus.anthropic;
 
   const navItem = (
     id: Tab,
@@ -80,7 +80,7 @@ export function PanelApp() {
           <div className="sidebar-logo">
             <CursorIcon size={34} />
           </div>
-          <div className="sidebar-title">Flicky</div>
+          <div className="sidebar-title">Zapi</div>
         </div>
 
         <nav className="nav">
@@ -89,7 +89,11 @@ export function PanelApp() {
 
           <div className="nav-label">Providers</div>
           {navItem('mind', 'Mind', { needs: mindNeeds })}
-          {navItem('voice', 'Voice', { needs: settings.speakReplies && !apiKeyStatus.elevenlabs })}
+          {navItem('voice', 'Voice', {
+            needs:
+              settings.speakReplies &&
+              !(settings.ttsProvider === 'fishaudio' ? apiKeyStatus.fishaudio : apiKeyStatus.elevenlabs),
+          })}
           {navItem('ear', 'Ear', { needs: !apiKeyStatus.groq })}
 
           <div className="nav-label">System</div>
@@ -100,7 +104,9 @@ export function PanelApp() {
           <button className="nav-item quit" onClick={() => window.flicky.quit()}>
             <span className="label">Quit</span>
           </button>
-          <div className="sidebar-version">{version ? `v${version}` : ''}</div>
+          <div className="sidebar-version">
+            {version ? `ZAPI v${version} · windows build` : 'ZAPI · windows build'}
+          </div>
         </div>
       </aside>
 
@@ -129,13 +135,28 @@ export function PanelApp() {
             settings={settings}
             memory={memory}
             onNavigate={(t) => setTab(t)}
+            onOpenAgentChat={(id) => {
+              setChatAgentFilter(id);
+              setTab('chats');
+            }}
           />
         )}
-        {tab === 'chats' && <ChatsTab />}
-        {tab === 'mind' && <MindTab settings={settings} />}
-        {tab === 'voice' && <VoiceTab settings={settings} />}
-        {tab === 'ear' && <EarTab settings={settings} />}
-        {tab === 'general' && <GeneralTab settings={settings} memory={memory} />}
+        {/* key remounts the wrapper on tab switch so the tabPanelIn
+            transition replays — pure presentation, no behavior change. */}
+        <div className="tab-panel" key={tab}>
+          {tab === 'chats' && (
+            <ChatsTab
+              agents={settings.agents ?? []}
+              agentFilter={chatAgentFilter}
+              onAgentFilter={setChatAgentFilter}
+              mindReady={!mindNeeds}
+            />
+          )}
+          {tab === 'mind' && <MindTab settings={settings} />}
+          {tab === 'voice' && <VoiceTab settings={settings} />}
+          {tab === 'ear' && <EarTab settings={settings} />}
+          {tab === 'general' && <GeneralTab settings={settings} memory={memory} />}
+        </div>
       </main>
     </div>
   );

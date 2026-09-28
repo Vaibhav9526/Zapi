@@ -18,6 +18,4 @@ export const AUDIO_IPC = {
   START_CAPTURE: 'start-audio-capture',
   /** Main → Renderer: stop capturing mic audio */
   STOP_CAPTURE: 'stop-audio-capture',
-  /** Renderer → Main: current audio power level (0-1) */
-  AUDIO_LEVEL: 'audio-level',
 } as const;

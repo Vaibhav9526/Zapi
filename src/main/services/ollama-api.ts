@@ -31,6 +31,8 @@ export interface OllamaStreamCallbacks {
 
 export interface OllamaChatOptions {
   replyTone: ReplyTone;
+  /** 'agent' swaps the talk persona for the computer-control prompt. */
+  mode?: 'talk' | 'agent';
   signal?: AbortSignal;
 }
 
@@ -46,11 +48,44 @@ function authHeaders(bearerToken?: string): Record<string, string> {
   return {};
 }
 
-// Strip trailing /v1 so callers can safely append /v1/... without doubling.
-// e.g. https://api.x.ai/v1 → https://api.x.ai
-//      http://localhost:11434 → http://localhost:11434
-function normalizeBase(url: string): string {
-  return url.replace(/\/v1\/?$/, '').replace(/\/$/, '');
+// Strip trailing /v1 (and a whole pasted /v1/chat/completions or
+// /v1/audio/transcriptions endpoint) so callers can safely append /v1/...
+// without doubling. Users paste the full endpoint URL from provider docs.
+// e.g. https://api.x.ai/v1              → https://api.x.ai
+//      https://x.ai/api/v1/chat/completions → https://x.ai/api
+//      http://localhost:11434           → http://localhost:11434
+export function normalizeBase(url: string): string {
+  return url
+    .replace(/\/+$/, '')
+    .replace(/\/(chat\/completions|audio\/transcriptions|models)\/?$/, '')
+    .replace(/\/v1\/?$/, '')
+    .replace(/\/$/, '');
+}
+
+/**
+ * Provider-prefixed model ids are REQUIRED by ClinePass-style endpoints
+ * ('openai/gpt-5'), while api.openai.com itself expects the bare id —
+ * a bare 'gpt-5' 404s on the former and 'openai/gpt-5' 404s on the
+ * latter, so the prefix decision hinges on which endpoint we're calling.
+ * An id that already carries a provider ('anthropic/…', 'openai/…')
+ * passes through untouched.
+ */
+export function resolveModelId(model: string, baseUrl?: string): string {
+  const trimmed = (baseUrl ?? '').trim();
+  if (trimmed && !model.includes('/')) return `openai/${model}`;
+  return model;
+}
+
+/** OpenAI only applies `reasoning_effort` to its reasoning-capable models. */
+const REASONING_CAPABLE = new Set(['gpt-5', 'gpt-5-mini']);
+
+/**
+ * Match on the suffix after any 'provider/' prefix — 'openai/gpt-5'
+ * (what resolveModelId produces for ClinePass) must still count.
+ */
+export function isReasoningCapableModel(modelId: string): boolean {
+  const suffix = modelId.split('/').pop() ?? modelId;
+  return REASONING_CAPABLE.has(suffix);
 }
 
 async function timedFetch(
@@ -262,7 +297,10 @@ export class OllamaAPI {
     baseUrl: string,
     bearerToken?: string,
   ): Promise<void> {
-    const systemPrompt = buildSystemPrompt(options.replyTone, { hasWebSearch: false });
+    const systemPrompt = buildSystemPrompt(options.replyTone, {
+      hasWebSearch: false,
+      mode: options.mode,
+    });
     const vision = isVisionModel(model);
 
     const messages: Array<{ role: string; content: unknown }> = [

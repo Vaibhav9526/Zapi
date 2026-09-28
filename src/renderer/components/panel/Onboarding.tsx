@@ -15,7 +15,7 @@ import { ShortcutCapture } from './ShortcutCapture';
  * is round-tripped against its provider, the shortcut has to actually
  * fire, the mic has to actually produce level, and the final step runs
  * a real end-to-end turn — so a user who reaches "Done" has a working
- * Flicky, not just a filled-in form.
+ * zapi, not just a filled-in form.
  */
 
 type StepId =
@@ -24,6 +24,7 @@ type StepId =
   | 'mind'
   | 'ear'
   | 'voice'
+  | 'modes'
   | 'shortcut'
   | 'mic'
   | 'try'
@@ -44,6 +45,7 @@ const ALL_STEPS: StepMeta[] = [
   { id: 'mind', title: 'Mind' },
   { id: 'ear', title: 'Ear' },
   { id: 'voice', title: 'Voice' },
+  { id: 'modes', title: 'Modes' },
   { id: 'shortcut', title: 'Shortcut' },
   { id: 'mic', title: 'Mic check' },
   { id: 'try', title: 'Try it' },
@@ -69,7 +71,7 @@ export function Onboarding({ settings, voiceState }: OnboardingProps) {
       <aside className="ob-rail">
         <div className="ob-brand">
           <CursorIcon size={28} />
-          <span>Flicky setup</span>
+          <span>Zapi setup</span>
         </div>
         <ol className="ob-rail-steps">
           {STEPS.map((s, i) => (
@@ -97,6 +99,7 @@ export function Onboarding({ settings, voiceState }: OnboardingProps) {
         {step.id === 'mind' && <MindStep settings={settings} onNext={next} onBack={back} />}
         {step.id === 'ear' && <EarStep settings={settings} onNext={next} onBack={back} />}
         {step.id === 'voice' && <VoiceStep settings={settings} onNext={next} onBack={back} />}
+        {step.id === 'modes' && <ModesStep settings={settings} onNext={next} onBack={back} />}
         {step.id === 'shortcut' && <ShortcutStep settings={settings} onNext={next} onBack={back} />}
         {step.id === 'mic' && <MicStep onNext={next} onBack={back} />}
         {step.id === 'try' && (
@@ -203,7 +206,7 @@ function WelcomeStep({ onNext }: { onNext: () => void }) {
   return (
     <>
       <div className="ob-hero-icon"><CursorIcon size={64} /></div>
-      <h1 className="ob-h1">Hi, I&apos;m Flicky<em>.</em></h1>
+      <h1 className="ob-h1">Hi, I&apos;m zapi<em>.</em></h1>
       <p className="ob-lead">
         A voice assistant that can see your screen. Hold a shortcut, ask a question, and a
         little blue cursor flies over to point at whatever I&apos;m talking about.
@@ -259,7 +262,7 @@ function PermissionsStep({ onNext, onBack }: { onNext: () => void; onBack: () =>
       <h1 className="ob-h1">Let me hear and see<em>.</em></h1>
       <p className="ob-lead">
         {isWin
-          ? 'Windows blocks desktop apps from the microphone until you allow it. Flicky can\'t hear you otherwise — this is the most common reason it seems to do nothing.'
+          ? 'Windows blocks desktop apps from the microphone until you allow it. zapi can\'t hear you otherwise — this is the most common reason it seems to do nothing.'
           : 'macOS asks per app. Grant these once and you\'re set.'}
       </p>
 
@@ -270,7 +273,7 @@ function PermissionsStep({ onNext, onBack }: { onNext: () => void; onBack: () =>
             <div className="ob-perm-sub">
               {isWin
                 ? 'Settings → Privacy & security → Microphone → turn on “Microphone access” and “Let desktop apps access your microphone”.'
-                : 'System Settings → Privacy & Security → Microphone → enable Flicky.'}
+                : 'System Settings → Privacy & Security → Microphone → enable Zapi.'}
             </div>
           </div>
           <div className="ob-perm-right">
@@ -294,7 +297,7 @@ function PermissionsStep({ onNext, onBack }: { onNext: () => void; onBack: () =>
             <div>
               <div className="ob-perm-title">Screen Recording</div>
               <div className="ob-perm-sub">
-                So Flicky can take the screenshot that goes with each question. macOS
+                So zapi can take the screenshot that goes with each question. macOS
                 requires a quit &amp; reopen after granting this one.
               </div>
             </div>
@@ -340,16 +343,14 @@ function PermissionsStep({ onNext, onBack }: { onNext: () => void; onBack: () =>
 
 const PROVIDERS: Array<{ id: MindProvider; label: string; sub: string; logo: string; cls: string }> = [
   { id: 'anthropic', label: 'Anthropic', sub: 'Claude Sonnet / Opus · built-in web search', logo: 'A', cls: '' },
-  { id: 'openai', label: 'OpenAI', sub: 'GPT-5 · GPT-4o', logo: 'Ai', cls: 'openai' },
-  { id: 'ollama', label: 'Local', sub: 'Ollama · LM Studio · any OpenAI-compatible endpoint', logo: '⬡', cls: 'local' },
+  { id: 'openai', label: 'OpenAI-compatible', sub: 'ClinePass · OpenAI · any /v1 endpoint', logo: 'Ai', cls: 'openai' },
 ];
 
 function MindStep({ settings, onNext, onBack }: { settings: FlickySettings; onNext: () => void; onBack: () => void }) {
   const provider = settings.mindProvider;
   const keyName = provider === 'openai' ? 'openai' : 'anthropic';
   const hasKey = provider === 'openai' ? settings.apiKeyStatus.openai : settings.apiKeyStatus.anthropic;
-  const hasLocal = (settings.localConnections ?? []).some((c) => c.enabled);
-  const ready = provider === 'ollama' ? true : hasKey;
+  const ready = hasKey;
   const [replacing, setReplacing] = useState(false);
 
   return (
@@ -377,16 +378,7 @@ function MindStep({ settings, onNext, onBack }: { settings: FlickySettings; onNe
       </div>
 
       <div className="ob-card">
-        {provider === 'ollama' ? (
-          <>
-            <div className="ob-card-title">Local endpoint</div>
-            <p className="ob-card-text">
-              {hasLocal
-                ? 'A local connection is already enabled.'
-                : 'No local connection yet. Finish setup, then add one under Mind → Local (URL, optional bearer token, and the model to use). Until then, questions will fail with “no enabled local connection”.'}
-            </p>
-          </>
-        ) : hasKey && !replacing ? (
+        {hasKey && !replacing ? (
           <SavedKey
             name={keyName}
             label={`${provider === 'openai' ? 'OpenAI' : 'Anthropic'} key`}
@@ -472,8 +464,10 @@ function EarStep({ settings, onNext, onBack }: { settings: FlickySettings; onNex
 // ── 5. Voice ───────────────────────────────────────────────────────────
 
 function VoiceStep({ settings, onNext, onBack }: { settings: FlickySettings; onNext: () => void; onBack: () => void }) {
-  const hasKey = settings.apiKeyStatus.elevenlabs;
-  const [replacing, setReplacing] = useState(false);
+  const hasFish = settings.apiKeyStatus.fishaudio;
+  const hasEleven = settings.apiKeyStatus.elevenlabs;
+  const hasKey = hasFish || hasEleven;
+  const [replacing, setReplacing] = useState<ApiKeyName | null>(null);
   const skip = () => {
     window.flicky.setSpeakReplies(false);
     onNext();
@@ -482,15 +476,40 @@ function VoiceStep({ settings, onNext, onBack }: { settings: FlickySettings; onN
     <>
       <h1 className="ob-h1">Give me a voice<em>.</em></h1>
       <p className="ob-lead">
-        Optional. With an ElevenLabs key I&apos;ll speak my answers out loud. Without one,
-        replies show up as text in the panel and the stream window.
+        Optional. With a Fish Audio or ElevenLabs key I&apos;ll speak my answers out loud.
+        Without one, replies show up as text in the panel and the stream window.
       </p>
       <div className="ob-card">
-        {hasKey && !replacing ? (
+        {hasFish && replacing !== 'fishaudio' ? (
+          <SavedKey
+            name="fishaudio"
+            label="Fish Audio key"
+            onReplace={() => setReplacing('fishaudio')}
+          />
+        ) : (
+          <>
+            <div className="ob-card-title">Fish Audio API key</div>
+            <p className="ob-card-text">
+              Get one from{' '}
+              <button className="link" onClick={() => window.flicky.openExternal('https://fish.audio')}>
+                fish.audio →
+              </button>
+            </p>
+            <KeyEntry
+              name="fishaudio"
+              placeholder="fish.audio api key"
+              onSaved={() => { window.flicky.setSpeakReplies(true); setReplacing(null); }}
+              onCancel={hasFish ? () => setReplacing(null) : undefined}
+            />
+          </>
+        )}
+      </div>
+      <div className="ob-card">
+        {hasEleven && replacing !== 'elevenlabs' ? (
           <SavedKey
             name="elevenlabs"
             label="ElevenLabs key"
-            onReplace={() => setReplacing(true)}
+            onReplace={() => setReplacing('elevenlabs')}
             extra={
               <button className="btn xs" onClick={() => window.flicky.playVoicePreview(settings.voiceId)}>
                 ▶ Preview voice
@@ -509,8 +528,8 @@ function VoiceStep({ settings, onNext, onBack }: { settings: FlickySettings; onN
             <KeyEntry
               name="elevenlabs"
               placeholder="xi-..."
-              onSaved={() => { window.flicky.setSpeakReplies(true); setReplacing(false); }}
-              onCancel={hasKey ? () => setReplacing(false) : undefined}
+              onSaved={() => { window.flicky.setSpeakReplies(true); setReplacing(null); }}
+              onCancel={hasEleven ? () => setReplacing(null) : undefined}
             />
           </>
         )}
@@ -524,6 +543,53 @@ function VoiceStep({ settings, onNext, onBack }: { settings: FlickySettings; onN
           )
         }
       />
+    </>
+  );
+}
+
+// ── 5b. Modes ──────────────────────────────────────────────────────────
+
+function ModesStep({ settings, onNext, onBack }: { settings: FlickySettings; onNext: () => void; onBack: () => void }) {
+  return (
+    <>
+      <h1 className="ob-h1">Four ways to use me<em>.</em></h1>
+      <p className="ob-lead">
+        Same window, different jobs. All of these can be switched later under
+        General → Modes.
+      </p>
+      <div className="ob-modes">
+        <div className="ob-mode-card">
+          <div className="ob-mode-title">Talk</div>
+          <div className="ob-mode-sub">
+            hold the shortcut and ask anything about what&apos;s on your screen
+          </div>
+        </div>
+        <div className="ob-mode-card">
+          <div className="ob-mode-title">Draw</div>
+          <div className="ob-mode-sub">
+            zapi sketches arrows, circles and notes right on your screen to point things out
+          </div>
+        </div>
+        <div className="ob-mode-card">
+          <div className="ob-mode-title">Dictate</div>
+          <div className="ob-mode-sub">
+            hold <Keys shortcut={settings.dictationShortcut} /> — your speech becomes text in
+            the focused field instead of a reply
+          </div>
+        </div>
+        <div className="ob-mode-card">
+          <div className="ob-mode-title">Agent</div>
+          <div className="ob-mode-sub">
+            say <i>&ldquo;zapi agent …&rdquo;</i> — zapi takes over the mouse + keyboard and
+            does it for you
+          </div>
+        </div>
+      </div>
+      <p className="ob-fine">
+        Dictation and always-on listening are off by default; agent mode is on with a
+        step limit you can cap.
+      </p>
+      <Footer onBack={onBack} onNext={onNext} />
     </>
   );
 }
@@ -699,7 +765,7 @@ function MicStep({ onNext, onBack }: { onNext: () => void; onBack: () => void })
           ) : peak > 0 ? (
             <Status kind="warn">receiving audio but it&apos;s very quiet — move closer or raise your input volume</Status>
           ) : (
-            <Status kind="wait">listening… say &ldquo;hi Flicky&rdquo;</Status>
+            <Status kind="wait">listening… say &ldquo;hi zapi&rdquo;</Status>
           )}
         </div>
         {error && isWin && (
@@ -776,7 +842,7 @@ function TryStep({ settings, voiceState, onNext, onBack }: {
       <h1 className="ob-h1">Ask me something<em>.</em></h1>
       <p className="ob-lead">
         A real turn, end to end. {verb} <Keys shortcut={settings.pushToTalkShortcut} /> and say
-        something like <i>&ldquo;Hi Flicky, what am I looking at?&rdquo;</i>
+        something like <i>&ldquo;Hi zapi, what am I looking at?&rdquo;</i>
         {verb === 'Hold' ? ' — then let go.' : ' — then tap again.'}
       </p>
 
@@ -789,7 +855,7 @@ function TryStep({ settings, voiceState, onNext, onBack }: {
           <div className={`ob-try-text ${transcript ? '' : 'empty'}`}>{transcript || '—'}</div>
         </div>
         <div className="ob-try-row">
-          <div className="ob-try-label">Flicky</div>
+          <div className="ob-try-label">zapi</div>
           <div className={`ob-try-text ${reply ? '' : 'empty'}`}>{reply || '—'}</div>
         </div>
         {error && <Status kind="err">{error}</Status>}
@@ -810,26 +876,36 @@ function TryStep({ settings, voiceState, onNext, onBack }: {
 // ── 9. Done ────────────────────────────────────────────────────────────
 
 function DoneStep({ settings, onBack }: { settings: FlickySettings; onBack: () => void }) {
-  const mind = settings.mindProvider === 'openai' ? 'OpenAI' : settings.mindProvider === 'ollama' ? 'Local model' : 'Anthropic';
+  const mind = settings.mindProvider === 'openai' ? 'OpenAI-compatible' : 'Anthropic';
+  const voiceKeySet =
+    settings.ttsProvider === 'fishaudio'
+      ? settings.apiKeyStatus.fishaudio
+      : settings.apiKeyStatus.elevenlabs;
+  const voiceLabel =
+    settings.speakReplies && voiceKeySet
+      ? settings.ttsProvider === 'fishaudio'
+        ? 'Fish Audio'
+        : 'ElevenLabs'
+      : 'text only';
   return (
     <>
       <div className="ob-hero-icon"><CursorIcon size={64} /></div>
       <h1 className="ob-h1">You&apos;re all set<em>.</em></h1>
       <p className="ob-lead">
-        Flicky lives in your system tray. Close this window and it keeps running; hold{' '}
+        zapi lives in your system tray. Close this window and it keeps running; hold{' '}
         <Keys shortcut={settings.pushToTalkShortcut} /> from anywhere.
       </p>
       <ul className="ob-bullets">
         <li><b>Mind:</b> {mind}</li>
         <li><b>Ear:</b> Groq Whisper</li>
-        <li><b>Voice:</b> {settings.speakReplies && settings.apiKeyStatus.elevenlabs ? 'ElevenLabs' : 'text only'}</li>
+        <li><b>Voice:</b> {voiceLabel}</li>
         <li><b>Shortcut:</b> <Keys shortcut={settings.pushToTalkShortcut} /> ({settings.pttMode === 'toggle' || isMac ? 'tap to toggle' : 'hold to talk'})</li>
       </ul>
       <p className="ob-fine">
         Everything here can be changed later from the panel, and you can rerun this setup
         from General → &ldquo;Run setup again&rdquo;.
       </p>
-      <Footer onBack={onBack} onNext={() => window.flicky.completeOnboarding()} nextLabel="Start using Flicky →" />
+      <Footer onBack={onBack} onNext={() => window.flicky.completeOnboarding()} nextLabel="Start using zapi →" />
     </>
   );
 }
